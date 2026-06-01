@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Orchestrator — Full Blueprint &amp; Documentation</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg:#0a0e1a; --surface:#111827; --surface2:#1a2236;
+  --text:#e2e8f0; --text2:#94a3b8; --accent:#7c3aed;
+  --accent2:#2563eb; --green:#22c55e; --amber:#f59e0b;
+  --red:#ef4444; --border:#1e293b; --radius:12px;
+}
+body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; }
+.container { max-width:1100px; margin:0 auto; padding:40px 24px; }
+
+/* header */
+.hero {
+  text-align:center; padding:60px 20px 50px;
+  border-bottom:1px solid var(--border); margin-bottom:48px;
+}
+.hero h1 {
+  font-size:44px; font-weight:800; letter-spacing:-1px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2),var(--green));
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+}
+.hero .sub { font-size:18px; color:var(--text2); margin-top:12px; }
+.hero .badge {
+  display:inline-block; margin-top:16px; padding:6px 20px; border-radius:20px;
+  background:rgba(124,58,237,0.15); border:1px solid rgba(124,58,237,0.3);
+  font-size:13px; color:var(--accent); font-weight:600;
+}
+.hero .badge2 {
+  display:inline-block; margin-top:8px; padding:4px 16px; border-radius:20px;
+  background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.2);
+  font-size:12px; color:var(--green);
+}
+
+/* toc */
+.toc {
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  padding:28px 32px; margin-bottom:48px;
+}
+.toc h2 { font-size:18px; margin-bottom:14px; color:var(--accent); }
+.toc ol { columns:2; column-gap:40px; padding-left:20px; }
+.toc ol li { margin-bottom:6px; font-size:14px; }
+.toc ol li a { color:var(--text2); text-decoration:none; transition:color 0.2s; }
+.toc ol li a:hover { color:var(--accent); }
+
+/* sections */
+section {
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+  padding:32px 36px; margin-bottom:28px;
+}
+section h2 {
+  font-size:24px; font-weight:700; margin-bottom:20px; padding-bottom:12px;
+  border-bottom:2px solid var(--border); display:flex; align-items:center; gap:10px;
+}
+section h2 .num {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:32px; height:32px; border-radius:8px; background:var(--accent); color:#fff;
+  font-size:15px; font-weight:700; flex-shrink:0;
+}
+section h3 { font-size:18px; font-weight:600; margin:24px 0 10px; color:var(--accent); }
+section h4 { font-size:15px; font-weight:600; margin:18px 0 8px; color:var(--green); }
+section p { color:var(--text2); margin-bottom:12px; font-size:14.5px; }
+section ul, section ol { color:var(--text2); margin:8px 0 14px 22px; font-size:14.5px; }
+section li { margin-bottom:6px; }
+section strong { color:var(--text); }
+section code {
+  background:var(--surface2); padding:2px 8px; border-radius:4px;
+  font-family:'JetBrains Mono','Fira Code',monospace; font-size:13px; color:var(--amber);
+}
+section .highlight {
+  background:rgba(124,58,237,0.08); border-left:3px solid var(--accent);
+  padding:14px 18px; border-radius:0 8px 8px 0; margin:14px 0; font-size:14px; color:var(--text2);
+}
+section .highlight.green { border-left-color:var(--green); background:rgba(34,197,94,0.06); }
+section .highlight.amber { border-left-color:var(--amber); background:rgba(245,158,11,0.06); }
+section .highlight.red { border-left-color:var(--red); background:rgba(239,68,68,0.06); }
+
+/* architecture diagram */
+.diagram {
+  background:var(--surface2); border-radius:8px; padding:24px; margin:16px 0;
+  font-family:'JetBrains Mono','Fira Code',monospace; font-size:13px; line-height:1.8;
+  white-space:pre; overflow-x:auto; color:var(--text2);
+}
+.diagram .hl { color:var(--accent); font-weight:600; }
+.diagram .hl2 { color:var(--green); }
+.diagram .hl3 { color:var(--amber); }
+.diagram .hl4 { color:var(--red); }
+.diagram .arrow { color:var(--text2); }
+
+/* table */
+table { width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }
+th, td { text-align:left; padding:10px 14px; border:1px solid var(--border); }
+th { background:var(--surface2); color:var(--accent); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; }
+td { color:var(--text2); }
+
+/* phase cards */
+.phases { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; margin:16px 0; }
+.phase-card {
+  background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+  padding:20px; transition:border-color 0.2s;
+}
+.phase-card:hover { border-color:var(--accent); }
+.phase-card h4 { color:var(--accent); margin:0 0 6px; font-size:15px; }
+.phase-card .phase-num { font-size:11px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+.phase-card p { font-size:13px; margin:0; }
+.phase-card .tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.phase-card .tags span {
+  font-size:10px; padding:2px 8px; border-radius:4px; font-weight:600;
+  background:rgba(124,58,237,0.1); color:var(--accent);
+}
+.phase-card .tags span.green { background:rgba(34,197,94,0.1); color:var(--green); }
+.phase-card .tags span.amber { background:rgba(245,158,11,0.1); color:var(--amber); }
+
+footer { text-align:center; padding:40px 0 10px; font-size:13px; color:var(--text2); border-top:1px solid var(--border); margin-top:40px; }
+
+@media (max-width:700px) {
+  .container { padding:24px 16px; }
+  .hero h1 { font-size:30px; }
+  .toc ol { columns:1; }
+  section { padding:22px 20px; }
+  .phases { grid-template-columns:1fr; }
+  table { font-size:12px; }
+  th, td { padding:6px 8px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+  <h1>The Orchestrator</h1>
+  <div class="sub">Browser-Native AI Orchestration Engine — Full Blueprint &amp; Documentation</div>
+  <div class="badge">Pre-Alpha · Planning Phase · v0.1</div>
+  <div class="badge2">No API Keys Required · Browser Extension Architecture</div>
+</div>
+
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#s1">Concept &amp; Vision</a></li>
+    <li><a href="#s2">Why Browser Automation Over APIs</a></li>
+    <li><a href="#s3">System Architecture</a></li>
+    <li><a href="#s4">Step-by-Step Execution Flow</a></li>
+    <li><a href="#s5">Technologies &amp; Tools Required</a></li>
+    <li><a href="#s6">Browser Extension Structure</a></li>
+    <li><a href="#s7">PC Access &amp; Desktop Integration</a></li>
+    <li><a href="#s8">Security Model</a></li>
+    <li><a href="#s9">Data Flow &amp; State Management</a></li>
+    <li><a href="#s10">Orchestrator Prompt Engineering</a></li>
+    <li><a href="#s11">Implementation Phases</a></li>
+    <li><a href="#s12">Challenges &amp; Mitigations</a></li>
+    <li><a href="#s13">Future Scope</a></li>
+    <li><a href="#s14">Full File Manifest</a></li>
+  </ol>
+</div>
+
+<section id="s1">
+<h2><span class="num">1</span>Concept &amp; Vision</h2>
+<p><strong>Super Linker</strong> is a browser-based AI orchestration engine that transforms multiple free web-based AI services (ChatGPT, Claude, DeepSeek, Gemini, etc.) into a coordinated, multi-agent system — all without using a single API key or spending any money.</p>
+
+<p>The core insight is simple: every AI website is just a web page with an input box, a submit button, and an output area. If we can programmatically control these elements across multiple tabs — inject prompts, click submit, read responses — we can chain AIs together into a pipeline. One AI plans, another writes code, another reviews it, another generates images — all coordinated from a single control panel.</p>
+
+<h3>Why This Matters</h3>
+<p>Currently, using multiple AIs for a complex task means manually copy-pasting between tabs. Super Linker automates this entire workflow. It turns your browser into a distributed AI workstation where each open tab acts as a worker node. The orchestrator (DeepSeek) acts as the project manager — it understands the task, breaks it down, assigns sub-tasks to the best-suited models, and consolidates results.</p>
+
+<h3>Guiding Principles</h3>
+<ul>
+  <li><strong>Zero API costs</strong> — We use the free web interfaces, not paid APIs</li>
+  <li><strong>All client-side</strong> — Everything runs in your browser, nothing leaves your machine except requests to the AI websites themselves</li>
+  <li><strong>Privacy-first</strong> — No data is sent to any intermediary server</li>
+  <li><strong>Extensible</strong> — New AI services can be added by just providing a DOM selector map</li>
+  <li><strong>Offline-capable orchestration</strong> — The orchestrator logic runs locally; only the worker tabs need internet</li>
+</ul>
+
+<div class="highlight">
+  <strong>Vision Statement:</strong> Super Linker aims to give every user the power of a multi-agent AI system — the kind that normally requires expensive API subscriptions or enterprise licenses — using nothing more than a browser and free accounts on existing AI platforms.
+</div>
+</section>
+
+<section id="s2">
+<h2><span class="num">2</span>Why Browser Automation Over APIs</h2>
+
+<h3>The Problem With APIs</h3>
+<p>Every major AI platform offers APIs, but they all share the same barriers:</p>
+<ul>
+  <li><strong>Cost:</strong> OpenAI API costs money per token. Claude API costs money. Even DeepSeek's cheap API costs something. Free tiers are extremely limited (often $5-10 one-time credit).</li>
+  <li><strong>Rate Limits:</strong> Free API tiers have harsh rate limits (3-60 requests per minute). This makes multi-agent chaining impractical.</li>
+  <li><strong>Key Management:</strong> Users need to sign up for each service, generate API keys, and paste them into our app. This is friction-heavy and the user has no way to know if they can trust us with their keys.</li>
+  <li><strong>Feature Gaps:</strong> APIs often lack features the web UI has — like image generation in ChatGPT, file uploads in Gemini, web search in Perplexity, etc.</li>
+  <li><strong>CORS Restrictions:</strong> Browsers block direct API calls from client-side code unless the API explicitly allows it (most don't). This forces us to run a proxy server, negating the "all in browser" goal.</li>
+</ul>
+
+<h3>Why Browser Automation Wins</h3>
+<table>
+  <tr><th>Factor</th><th>API Approach</th><th>Browser Automation</th></tr>
+  <tr><td>Cost</td><td>Pay per token</td><td>Free (uses web UIs)</td></tr>
+  <tr><td>Setup Friction</td><td>Sign up for each API, generate &amp; store keys</td><td>Just log into websites you already use</td></tr>
+  <tr><td>Rate Limits</td><td>Tight (3–60 req/min)</td><td>Generous (website limits are higher)</td></tr>
+  <tr><td>Feature Access</td><td>Often limited vs web UI</td><td>Full feature parity</td></tr>
+  <tr><td>Security for User</td><td>Must trust app with API keys</td><td>No keys shared; just browser permissions</td></tr>
+  <tr><td>Implementation</td><td>Needs proxy server for CORS</td><td>Pure client-side (content scripts)</td></tr>
+  <tr><td>Reliability</td><td>Depends on API uptime</td><td>Depends on website uptime (similar)</td></tr>
+  <tr><td>Parallel Execution</td><td>Limited by rate limits</td><td>Limited only by your machine's tabs</td></tr>
+</table>
+
+<h3>How We Automate the Browser</h3>
+<p>We build a <strong>Chrome extension</strong> (or Firefox extension) with these capabilities:</p>
+<ul>
+  <li><strong>Content Scripts:</strong> JavaScript that runs inside each AI website's page. These scripts can read/write the DOM — filling input fields, clicking buttons, reading response text.</li>
+  <li><strong>Background Script (Service Worker):</strong> The orchestration engine lives here. It manages tabs, sends instructions to content scripts, receives results, and runs the routing logic.</li>
+  <li><strong>Popup UI:</strong> The control panel where the user types their master prompt and sees results.</li>
+  <li><strong>Tab Management API:</strong> We use Chrome's <code>chrome.tabs</code> API to open, close, and communicate with tabs for each AI service.</li>
+</ul>
+
+<div class="highlight">
+  <strong>Key Insight:</strong> A browser extension is the only way to programmatically control one website from another in the browser. Content scripts have full DOM access to the page they run on, and the background script can message any content script in any tab. This is our communication backbone.
+</div>
+</section>
+
+<section id="s3">
+<h2><span class="num">3</span>System Architecture</h2>
+
+<h3>High-Level Component Diagram</h3>
+<div class="diagram">
+┌─────────────────────────────────────────────────────────────────┐
+│                    <span class="hl">SUPER LINKER ARCHITECTURE</span>                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐   ┌───────────────────────────────────────┐   │
+│  │  <span class="hl">POPUP UI</span>     │   │     <span class="hl">BACKGROUND SERVICE WORKER</span>               │   │
+│  │  (User types  │──▶│  ┌─────────────────────────────────┐  │   │
+│  │   prompt)     │   │  │  <span class="hl2">Orchestrator Engine</span>               │  │   │
+│  │               │   │  │  ┌──────────┐ ┌──────────────┐  │  │   │
+│  │  Shows status │◀──│  │  │<span class="hl3">Router</span>    │ │<span class="hl3">Prompt Gen</span>    │  │  │   │
+│  │  &amp; results    │   │  │  └──────────┘ └──────────────┘  │  │   │
+│  └──────────────┘   │  │  ┌──────────┐ ┌──────────────┐  │  │   │
+│                     │  │  │<span class="hl3">Parser</span>    │ │<span class="hl3">Dispatcher</span>    │  │  │   │
+│                     │  │  └──────────┘ └──────────────┘  │  │   │
+│                     │  │  ┌──────────┐ ┌──────────────┐  │  │   │
+│                     │  │  │<span class="hl3">Collector</span> │ │<span class="hl3">State Mgr</span>   │  │  │   │
+│                     │  │  └──────────┘ └──────────────┘  │  │   │
+│                     │  └─────────────────────────────────┘  │   │
+│                     └───────────────────────────────────────┘   │
+│                                │                                │
+│                                ▼                                │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              <span class="hl">TAB / TABLET MANAGEMENT LAYER</span>                  │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │  │
+│  │  │<span class="hl3">Tab 1</span>     │  │<span class="hl3">Tab 2</span>     │  │<span class="hl3">Tab 3</span>     │  │<span class="hl3">Tab N</span>     │  │  │
+│  │  │ DeepSeek  │  │ ChatGPT  │  │ Claude   │  │ Gemini   │  │  │
+│  │  └─────┬────┘  └─────┬────┘  └─────┬────┘  └─────┬────┘  │  │
+│  └────────┼──────────────┼──────────────┼──────────────┼───┘  │
+│           │              │              │              │       │
+│           ▼              ▼              ▼              ▼       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              <span class="hl">CONTENT SCRIPTS (per site)</span>                  │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │  │
+│  │  │<span class="hl3">Injector</span>  │  │<span class="hl3">Injector</span>  │  │<span class="hl3">Injector</span>  │  │<span class="hl3">Injector</span>  │  │  │
+│  │  │<span class="hl3">Reader</span>    │  │<span class="hl3">Reader</span>    │  │<span class="hl3">Reader</span>    │  │<span class="hl3">Reader</span>    │  │  │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │              <span class="hl">LOCAL STATE &amp; STORAGE</span>                       │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │  │
+│  │  │<span class="hl3">IndexedDB</span> │  │<span class="hl3">chrome.</span>  │  │<span class="hl3">Session</span>  │  │<span class="hl3">Download</span>  │  │  │
+│  │  │(results) │  │<span class="hl3">storage</span>  │  │<span class="hl3">State</span>   │  │<span class="hl3">Exports</span>  │  │  │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+</div>
+
+<h3>Component Breakdown</h3>
+
+<h4>3.1 Popup UI (User Facing)</h4>
+<p>The popup is the user's control panel. It opens when the user clicks the Super Linker icon in the Chrome toolbar. It contains:</p>
+<ul>
+  <li><strong>Master Prompt Input:</strong> A large textarea where the user types their high-level task. Example: "Build a React calculator app with dark mode, then write a blog post explaining how it works, and generate a diagram of its component tree."</li>
+  <li><strong>AI Service Manager:</strong> A list of available AI services with checkboxes. The user can select which AIs to include in the pool. Each service shows its status (Not Logged In / Ready / Busy).</li>
+  <li><strong>Execution Pipeline View:</strong> A real-time visualization of the orchestration pipeline showing which AI is currently working, what sub-task it was assigned, and the response so far.</li>
+  <li><strong>Results Panel:</strong> After execution completes, all outputs are shown here. Each result is tagged with the AI that produced it, the sub-prompt used, and a timestamp.</li>
+  <li><strong>Export Controls:</strong> Buttons to export the entire session as JSON, Markdown, or plain text. Options to save to disk or copy to clipboard.</li>
+  <li><strong>Settings:</strong> Configuration for timeouts, retry logic, parallel vs sequential execution, orchestrator model selection, and custom prompt templates.</li>
+</ul>
+
+<h4>3.2 Background Service Worker (Orchestrator Engine)</h4>
+<p>This is the brain. It runs persistently in the background and coordinates everything. It is a Chrome Service Worker (replacing background pages in Manifest V3).</p>
+
+<p><strong>Sub-components:</strong></p>
+<ul>
+  <li><strong>Router:</strong> Receives the master prompt and determines which orchestrator model to use (default: DeepSeek). It opens/activates the DeepSeek tab and sends the routing request.</li>
+  <li><strong>Prompt Generator:</strong> Constructs the system prompt for the orchestrator. This prompt includes: the full list of available AIs with their capabilities, the instruction to analyze the task and break it down, the structured tag format for the response, and examples of good task decomposition.</li>
+  <li><strong>Parser:</strong> After the orchestrator responds, this component parses the structured output. It extracts model assignments, sub-prompts, and execution order using regex or a simple state machine parser.</li>
+  <li><strong>Dispatcher:</strong> Takes the parsed output and executes each sub-task. For each assigned model, it opens or activates the corresponding tab, sends the sub-prompt to that tab's content script, and waits for completion. It handles retries, timeouts, and error reporting.</li>
+  <li><strong>Collector:</strong> Gathers all responses from the worker tabs. It maintains a session state object that maps sub-task → model → response. When all tasks are complete, it sends the consolidated result back to the popup.</li>
+  <li><strong>State Manager:</strong> Maintains the current state of the entire system — which tabs are open, which AIs are logged in, what tasks are pending/completed, session history. It persists state to <code>chrome.storage</code> so the system survives browser restarts.</li>
+</ul>
+
+<h4>3.3 Content Scripts (Per-Site Adapters)</h4>
+<p>Each AI website gets a custom content script that acts as an adapter between our system and the site's DOM. Every content script has the same interface but different internal selectors:</p>
+<ul>
+  <li><strong>Site Adapter Interface:</strong>
+    <ul>
+      <li><code>isLoggedIn(): boolean</code> — Checks if the user is logged in (looks for user avatar, profile button, etc.)</li>
+      <li><code>injectPrompt(text: string): void</code> — Types text into the input area. Handles rich text editors, contenteditable divs, and standard textareas.</li>
+      <li><code>clickSubmit(): void</code> — Clicks the send/submit button. Handles different button states (disabled while loading, send vs regenerate, etc.)</li>
+      <li><code>waitForResponse(): Promise&lt;string&gt;</code> — Waits for the AI to finish generating, then reads the response from the DOM. Handles streaming responses by polling until generation stops.</li>
+      <li><code>getLastResponse(): string</code> — Returns the last AI response without waiting.</li>
+    </ul>
+  </li>
+  <li><strong>Example Selectors (will change if sites update their UI):</strong>
+    <ul>
+      <li>DeepSeek: <code>#chat-input textarea</code>, <code>.send-button</code>, <code>.message-content:last-child</code></li>
+      <li>ChatGPT: <code>#prompt-textarea</code>, <code>button[data-testid=send-button]</code>, <code>article:last-child .markdown</code></li>
+      <li>Claude: <code>.ProseMirror</code>, <code>button[aria-label=Send]</code>, <code>.font-claude-message:last-child</code></li>
+      <li>Gemini: <code>.input-area textarea</code>, <code>button.send-button</code>, <code>.response-content:last-child</code></li>
+    </ul>
+  </li>
+</ul>
+
+<h4>3.4 Tab Manager</h4>
+<p>This component manages the lifecycle of browser tabs:</p>
+<ul>
+  <li>Opens a new tab for an AI service if one isn't already open (using <code>chrome.tabs.create</code>)</li>
+  <li>Finds existing tabs for a service to avoid duplicates (using <code>chrome.tabs.query</code>)</li>
+  <li>Activates a tab when it needs attention (using <code>chrome.tabs.update</code> to bring it to foreground)</li>
+  <li>Injects the content script into the tab if not already injected</li>
+  <li>Sends messages to the content script and waits for responses</li>
+  <li>Handles tab crashes, timeouts, and navigation events</li>
+</ul>
+
+<h3>Communication Protocol</h3>
+<p>All communication between components uses Chrome's message passing:</p>
+<ul>
+  <li><strong>Popup → Background:</strong> <code>chrome.runtime.sendMessage()</code> — User submits prompt, settings changes, manual refresh requests.</li>
+  <li><strong>Background → Content Script:</strong> <code>chrome.tabs.sendMessage()</code> — Inject prompt, click submit, read response, check login status.</li>
+  <li><strong>Content Script → Background:</strong> <code>chrome.runtime.onMessage</code> listener response — Returns login status, response text, error info.</li>
+  <li><strong>Background → Popup:</strong> <code>chrome.runtime.onMessage</code> listener response — Sends status updates, partial results, final consolidated output.</li>
+  <li><strong>Content Script ↔ Content Script:</strong> No direct communication. All cross-tab communication goes through the background script.</li>
+</ul>
+
+<div class="highlight">
+  <strong>Critical Rule:</strong> Content scripts never communicate directly with each other. The background script is always the intermediary. This ensures clean state management and avoids race conditions.
+</div>
+</section>
+
+<section id="s4">
+<h2><span class="num">4</span>Step-by-Step Execution Flow</h2>
+
+<p>This section details the exact execution flow from the moment the user types a prompt to the final consolidated output. Each step includes the expected data structures, error handling, and timing considerations.</p>
+
+<h3>Phase 1: User Input &amp; Initialization</h3>
+<ul>
+  <li><strong>Step 1.1 — User Types Master Prompt:</strong> The user opens the Super Linker popup and types their high-level task into the master prompt textarea. This could be anything from "Write a Python script to scrape this website" to "Create a full marketing campaign with a logo, landing page copy, and social media posts." The textarea supports multi-line input and has a character counter.</li>
+  <li><strong>Step 1.2 — User Configures AI Pool:</strong> The user selects which AI services to include in the execution pool via checkboxes. Each service shows its current status (green dot = logged in / red dot = not logged in). The user can also set preferences like "prefer Claude for writing tasks" or "only use DeepSeek for coding."</li>
+  <li><strong>Step 1.3 — User Sets Parameters:</strong> Optional parameters include: max execution time (default 10 minutes), parallel vs sequential execution, retry count on failure (default 2), verbosity of logs, and whether to stream results in real-time.</li>
+  <li><strong>Step 1.4 — Initiate Execution:</strong> User clicks "Execute" button. The popup immediately validates the input (non-empty, at least one AI selected, orchestrator available). It then sends the <code>START_EXECUTION</code> message to the background service worker with the full configuration object.</li>
+  <li><strong>Step 1.5 — State Initialization:</strong> The background worker creates a new session object in its state manager. This session includes: a unique session UUID, timestamp, the master prompt text, the selected AI pool, all parameters, and an empty tasks array. The session is persisted to <code>chrome.storage.session</code> for crash recovery.</li>
+</ul>
+
+<h3>Phase 2: Orchestrator Task Decomposition</h3>
+<ul>
+  <li><strong>Step 2.1 — Open Orchestrator Tab:</strong> The background worker queries for an existing DeepSeek tab. If none exists, it creates a new tab pointing to <code>https://chat.deepseek.com</code>. It waits for the tab to fully load (DOMContentLoaded + 2 second buffer for JS initialization).</li>
+  <li><strong>Step 2.2 — Inject Orchestrator System Prompt:</strong> The worker sends a message to the DeepSeek content script with the orchestrator system prompt. This prompt is carefully engineered (see Section 10) to instruct DeepSeek on how to analyze the task and produce structured output. The system prompt is approximately 2000 tokens and includes: role definition, available AI catalog, output format specification, and examples.</li>
+  <li><strong>Step 2.3 — Inject Master Prompt:</strong> After the system prompt is confirmed typed, the worker sends a follow-up message to inject the user's actual master prompt into the input field. The content script appends this after the system prompt (separated by a delimiter) or in a new conversation, depending on the site's behavior.</li>
+  <li><strong>Step 2.4 — Execute on Orchestrator:</strong> The worker sends the <code>CLICK_SUBMIT</code> command. The content script clicks the send button. A 1-second delay ensures the request registers. The worker then waits for the orchestrator to finish generating.</li>
+  <li><strong>Step 2.5 — Wait for Response:</strong> The content script enters a polling loop. Every 500ms, it checks if the AI has finished generating by looking for the stop button (presence = still generating, absence = done) or by comparing the response text length over two consecutive polls (no change = done). Maximum wait: 180 seconds. If exceeded, the worker retries once or reports a timeout error.</li>
+  <li><strong>Step 2.6 — Read Structured Output:</strong> The content script reads the full response from the DOM, extracts the text, and sends it back to the background worker. The worker passes this raw text to the Parser component.</li>
+</ul>
+
+<h3>Phase 3: Parsing &amp; Task Assignment</h3>
+<ul>
+  <li><strong>Step 3.1 — Validate Response Structure:</strong> The parser first checks if the response contains valid structured tags. It looks for the opening <code>&lt;super-linker-plan&gt;</code> tag. If not found, it sends the response back to the orchestrator with a corrective instruction: "Your response must start with &lt;super-linker-plan&gt;. Please re-analyze the task and output in the correct format."</li>
+  <li><strong>Step 3.2 — Extract Task Blocks:</strong> The parser uses regex to extract all <code>&lt;task&gt;...&lt;/task&gt;</code> blocks. Each block contains: <code>&lt;model&gt;</code> (which AI to use), <code>&lt;prompt&gt;</code> (the sub-prompt to send), <code>&lt;depends-on&gt;</code> (optional task IDs this task depends on), and <code>&lt;priority&gt;</code> (1-5, for ordering).</li>
+  <li><strong>Step 3.3 — Build Task Dependency Graph:</strong> The parser constructs a directed acyclic graph (DAG) of tasks based on the <code>depends-on</code> fields. Tasks with no dependencies are Level 0 and can run in parallel. Tasks that depend on Level 0 are Level 1, and so on. This graph determines execution ordering.</li>
+  <li><strong>Step 3.4 — Validate Task Assignments:</strong> For each task, the parser validates that the assigned model exists in the user's selected AI pool and that the required model is accessible (tab open, user logged in). If a model is unavailable, the task is flagged and either reassigned to the next-best model or reported to the user for manual intervention.</li>
+  <li><strong>Step 3.5 — Generate Execution Plan:</strong> The parser outputs a structured execution plan object: <code>{ tasks: [{id, model, prompt, dependencies, priority, status, retries}] }</code>. This plan is stored in the session state and also rendered in the popup so the user can see what the orchestrator decided.</li>
+</ul>
+
+<h3>Phase 4: Dispatcher — Task Execution</h3>
+<ul>
+  <li><strong>Step 4.1 — Execute Ready Tasks:</strong> The dispatcher scans for tasks with <code>status: "pending"</code> and all dependencies met (status: "completed"). These tasks are moved to "in_progress" and dispatched immediately. If parallel execution is enabled, all ready tasks fire simultaneously. If sequential, they fire one at a time.</li>
+  <li><strong>Step 4.2 — Open Worker Tab (if needed):</strong> For each task, the dispatcher queries for an existing tab matching the assigned model's URL. If found, it activates that tab. If not, it creates a new tab. It waits for the tab to load and for the content script to confirm it's ready.</li>
+  <li><strong>Step 4.3 — Check Login Status:</strong> The dispatcher sends a <code>CHECK_LOGIN</code> message to the content script. If the user isn't logged in, the dispatcher pauses that task, sends a notification to the popup ("Please log into [model] to continue"), and waits. The user can log in manually and then resume the task.</li>
+  <li><strong>Step 4.4 — Inject Sub-Prompt:</strong> Once logged in, the dispatcher sends the <code>INJECT_PROMPT</code> command with the sub-prompt text. The content script clears the input area (if needed), types the prompt character-by-character (or pastes it for long prompts), and confirms.</li>
+  <li><strong>Step 4.5 — Execute &amp; Monitor:</strong> The dispatcher sends <code>CLICK_SUBMIT</code> and begins monitoring. It receives periodic progress updates from the content script (e.g., "generating... 45% complete" if the site shows a progress indicator, or just "still generating" for opaque UIs).</li>
+  <li><strong>Step 4.6 — Handle Streaming Output (optional):</strong> Some AI sites stream their output token by token. If the content script detects streaming (response text changes between polls), it can forward partial results to the popup for real-time display. This gives the user visibility into what each AI is producing.</li>
+  <li><strong>Step 4.7 — Read Final Response:</strong> When generation completes, the content script reads the full response text and sends it back to the dispatcher. The dispatcher marks the task as "completed", stores the response in the session, and triggers a re-scan for newly-ready tasks (Step 4.1).</li>
+  <li><strong>Step 4.8 — Error Handling:</strong> If a task fails (timeout, error response, tab crash), the dispatcher: logs the error, increments retry counter, and if retries remain, re-dispatches the task. If retries exhausted, the task is marked "failed", dependent tasks are notified, and the user sees an error card in the results.</li>
+</ul>
+
+<h3>Phase 5: Collection &amp; Consolidation</h3>
+<ul>
+  <li><strong>Step 5.1 — Aggregate Results:</strong> As each task completes, the Collector component updates the consolidated results object. This object maps each task ID to its response, execution time, model used, and any errors.</li>
+  <li><strong>Step 5.2 — Check Completion:</strong> After every task completion, the collector checks if all tasks are in a terminal state ("completed" or "failed"). If yes, it proceeds to consolidation. If no, it waits for the next completion event.</li>
+  <li><strong>Step 5.3 — Optional Final Orchestration:</strong> If the orchestrator specified a <code>&lt;final-prompt&gt;</code> tag in its output, the collector can feed all individual task responses back to the orchestrator for a final synthesis. This is useful when the user wants a unified output (e.g., "compile everything into a single report").</li>
+  <li><strong>Step 5.4 — Format Output:</strong> The collector formats the consolidated results based on user preference: raw text, Markdown with collapsible sections, or a structured JSON blob. Each result section is labeled with the model name, task description, and execution stats.</li>
+  <li><strong>Step 5.5 — Send to Popup:</strong> The background worker sends the <code>EXECUTION_COMPLETE</code> message to the popup with the full results object. The popup renders the results in the results panel with syntax highlighting for code blocks and collapsible sections for long responses.</li>
+  <li><strong>Step 5.6 — User Review &amp; Export:</strong> The user can review all results, expand/collapse sections, copy individual responses, or export the entire session. Export options include JSON (full session data including prompts, timing, errors), Markdown (formatted for documentation), and plain text (clean concatenation of all responses).</li>
+  <li><strong>Step 5.7 — Session Archival:</strong> The completed session is archived to IndexedDB for history. The user can browse past sessions, re-run them with modifications, or delete them. Sessions are tagged with a title derived from the first 50 characters of the master prompt.</li>
+</ul>
+
+<h3>Execution Flow Diagram</h3>
+<div class="diagram">
+<span class="hl">SEQUENCE DIAGRAM (simplified):</span>
+
+User           Popup         Background       DeepSeek        ChatGPT        Claude
+ │              │               │               │               │              │
+ │─ type prompt─▶               │               │               │              │
+ │─ click exec ─▶               │               │               │              │
+ │              │─ START ──────▶│               │               │              │
+ │              │               │─ open tab ───▶│               │              │
+ │              │               │─ sys prompt ─▶│               │              │
+ │              │               │─ my prompt ──▶│               │              │
+ │              │               │─ submit ─────▶│               │              │
+ │              │               │               │── generates ─│              │
+ │              │               │◀─ response ───│               │              │
+ │              │               │               │               │              │
+ │              │               │── parse ─┐    │               │              │
+ │              │               │◀─ tasks ──┘    │               │              │
+ │              │               │               │               │              │
+ │              │               │── open tab ─────────────────▶│              │
+ │              │               │── sub-prompt ────────────────▶│              │
+ │              │               │── submit ────────────────────▶│              │
+ │              │               │── open tab ────────────────────────────────▶│
+ │              │               │── sub-prompt ───────────────────────────────▶│
+ │              │               │── submit ───────────────────────────────────▶│
+ │              │               │               │               │              │
+ │              │               │◀─ response ───────────────────│              │
+ │              │               │◀─ response ─────────────────────────────────│
+ │              │               │               │               │              │
+ │              │◀─ COMPLETE ────│               │               │              │
+ │              │               │               │               │              │
+ │◀─ results ────│               │               │               │              │
+ │  (review)     │               │               │               │              │
+ │─ export ─────▶│               │               │               │              │
+ │◀─ file ───────│               │               │               │              │
+</div>
+</section>
+
+<section id="s5">
+<h2><span class="num">5</span>Technologies &amp; Tools Required</h2>
+
+<h3>Core Technologies</h3>
+<table>
+  <tr><th>Technology</th><th>Purpose</th><th>Why This Choice</th></tr>
+  <tr><td><strong>Chrome Extensions (Manifest V3)</strong></td><td>Application shell &amp; browser integration</td><td>Only way to inject scripts into cross-origin pages from a browser context. MV3 is the current standard, more secure, and will outlive MV2.</td></tr>
+  <tr><td><strong>JavaScript (ES2023+)</strong></td><td>All application logic</td><td>Required by Chrome extensions. Modern ES features (async/await, optional chaining, nullish coalescing) make the code cleaner.</td></tr>
+  <tr><td><strong>HTML5 / CSS3</strong></td><td>Popup UI &amp; options page</td><td>Standard web technologies. No framework needed for a popup — vanilla HTML+CSS keeps the bundle small and fast.</td></tr>
+  <tr><td><strong>chrome.tabs API</strong></td><td>Tab creation, querying, messaging</td><td>Core API for managing browser tabs — the backbone of our multi-tab orchestration.</td></tr>
+  <tr><td><strong>chrome.storage API</strong></td><td>Persistent state &amp; configuration</td><td>chrome.storage.session for runtime state, chrome.storage.local for persistent settings and cached selectors.</td></tr>
+  <tr><td><strong>chrome.runtime API</strong></td><td>Message passing between components</td><td>Popup ↔ background ↔ content script communication.</td></tr>
+  <tr><td><strong>chrome.downloads API</strong></td><td>Export functionality</td><td>Download results as files without needing a server.</td></tr>
+</table>
+
+<h3>Development Tools</h3>
+<table>
+  <tr><th>Tool</th><th>Purpose</th></tr>
+  <tr><td>Node.js (v20+)</td><td>Local development server, build tooling, package management</td></tr>
+  <tr><td>npm or yarn</td><td>Package management (only needed if we use build tools)</td></tr>
+  <tr><td>VS Code</td><td>Primary development IDE</td></tr>
+  <tr><td>Chrome DevTools</td><td>Debugging extension, inspecting content scripts, network monitoring</td></tr>
+  <tr><td>Git</td><td>Version control</td></tr>
+  <tr><td>webpack (or esbuild)</td><td>Optional — bundling content scripts for different sites, minification</td></tr>
+  <tr><td>ESLint + Prettier</td><td>Code quality and formatting</td></tr>
+</table>
+
+<h3>Knowledge Prerequisites</h3>
+<ul>
+  <li><strong>Chrome Extension Architecture:</strong> Manifest V3, service workers, content scripts, isolated worlds, message passing, permissions model.</li>
+  <li><strong>DOM Manipulation:</strong> Deep understanding of selectors, mutation observers (for detecting DOM changes in streaming responses), event dispatching, contenteditable fields.</li>
+  <li><strong>Regular Expressions:</strong> For parsing structured tags from orchestrator output. Must handle nested tags, multiline content, and edge cases.</li>
+  <li><strong>Async Programming:</strong> Promises, async/await, timeouts, race conditions, abort controllers (for cancellation).</li>
+  <li><strong>Graph Theory Basics:</strong> Task dependency graphs (DAG), topological sorting for determining execution order.</li>
+  <li><strong>Prompt Engineering:</strong> Crafting the orchestrator's system prompt to reliably produce structured, parseable output.</li>
+  <li><strong>Basic Reverse Engineering:</strong> Inspecting AI websites' DOM structures to find the correct selectors for input/output elements.</li>
+</ul>
+
+<h3>Optional / Future Technologies</h3>
+<table>
+  <tr><th>Technology</th><th>Potential Use</th></tr>
+  <tr><td><strong>WebAssembly</strong></td><td>Running local models (like Llama.cpp) directly in the browser for offline orchestrator capability</td></tr>
+  <tr><td><strong>WebLLM / Transformers.js</strong></td><td>Client-side AI inference for simple classification tasks (categorizing tasks before sending to orchestrator)</td></tr>
+  <tr><td><strong>Native Messaging (chrome.runtime.connectNative)</strong></td><td>Bridging to desktop applications for PC-level access (file system, local processes, hardware control)</td></tr>
+  <tr><td><strong>WebSocket / WebRTC</strong></td><td>Peer-to-peer sharing of AI agent results between multiple users' browsers for collaborative workflows</td></tr>
+  <tr><td><strong>React / Vue / Svelte</strong></td><td>If the popup UI grows complex enough to warrant a framework</td></tr>
+  <tr><td><strong>TypeScript</strong></td><td>Type safety for the codebase (recommended if the project grows beyond 5000 lines)</td></tr>
+</table>
+</section>
+
+<section id="s6">
+<h2><span class="num">6</span>Browser Extension Structure</h2>
+
+<h3>File &amp; Directory Layout</h3>
+<div class="diagram">
+super-linker-extension/
+├── manifest.json                 # Extension manifest (MV3)
+├── icons/                        # Extension icons
+│   ├── icon16.png
+│   ├── icon48.png
+│   └── icon128.png
+├── popup/                        # Popup UI (user control panel)
+│   ├── popup.html
+│   ├── popup.css
+│   ├── popup.js
+│   └── components/              # UI sub-components
+│       ├── prompt-input.js
+│       ├── ai-selector.js
+│       ├── pipeline-view.js
+│       ├── results-panel.js
+│       └── settings-panel.js
+├── background/                   # Background service worker
+│   ├── service-worker.js         # Main entry point
+│   ├── orchestrator.js           # Orchestrator engine
+│   ├── router.js                 # Task decomposition &amp; model selection
+│   ├── prompt-generator.js       # System prompt construction
+│   ├── parser.js                 # Structured output parser
+│   ├── dispatcher.js             # Task execution &amp; monitoring
+│   ├── collector.js              # Result aggregation
+│   ├── state-manager.js          # Session persistence
+│   ├── tab-manager.js            # Tab lifecycle management
+│   └── models/                   # Model-specific configs
+│       ├── index.js              # Model registry
+│       ├── deepseek.js
+│       ├── chatgpt.js
+│       ├── claude.js
+│       ├── gemini.js
+│       ├── perplexity.js
+│       ├── grok.js
+│       ├── meta.js
+│       ├── poe.js
+│       └── ... (one per supported AI)
+├── content-scripts/              # Per-site content scripts
+│   ├── lib/
+│   │   ├── adapter-base.js       # Base class for all adapters
+│   │   ├── dom-utils.js          # Shared DOM utilities
+│   │   ├── streaming-detector.js # Detect streaming vs complete
+│   │   └── mutation-watcher.js   # Watch DOM for changes
+│   ├── deepseek.js
+│   ├── chatgpt.js
+│   ├── claude.js
+│   ├── gemini.js
+│   ├── perplexity.js
+│   ├── grok.js
+│   ├── meta-ai.js
+│   ├── poe.js
+│   ├── you.js
+│   ├── huggingchat.js
+│   ├── mistral.js
+│   ├── character-ai.js
+│   ├── pi-ai.js
+│   ├── cohere.js
+│   └── ... (one per supported AI)
+├── lib/                          # Shared libraries
+│   ├── constants.js              # URLs, selectors, configs
+│   ├── message-types.js          # Message type constants
+│   ├── utils.js                  # Shared utility functions
+│   └── errors.js                 # Custom error classes
+├── options/                      # Options page (optional)
+│   ├── options.html
+│   ├── options.css
+│   └── options.js
+├── tests/                        # Test files
+│   ├── unit/
+│   │   ├── parser.test.js
+│   │   ├── router.test.js
+│   │   └── state-manager.test.js
+│   └── integration/
+│       ├── orchestrator-flow.test.js
+│       └── dispatcher.test.js
+├── docs/                         # Documentation
+│   ├── ARCHITECTURE.md
+│   ├── ADDING_A_NEW_MODEL.md
+│   └── TROUBLESHOOTING.md
+├── scripts/                      # Build &amp; utility scripts
+│   ├── build.js                  # Bundle for production
+│   ├── dev.js                    # Dev mode with hot reload
+│   └── generate-icons.js         # Generate icon variants
+├── package.json
+└── README.md
+</div>
+
+<h3>manifest.json Structure</h3>
+<div class="diagram" style="white-space:pre-wrap;font-family:inherit">
+{
+  <span class="hl">"manifest_version"</span>: 3,
+  <span class="hl">"name"</span>: "Super Linker — AI Orchestrator",
+  <span class="hl">"version"</span>: "0.1.0",
+  <span class="hl">"description"</span>: "Orchestrate multiple AI websites from one control panel",
+  <span class="hl">"permissions"</span>: [
+    "storage",        <span class="hl3">// For state persistence</span>
+    "tabs",           <span class="hl3">// For tab creation &amp; management</span>
+    "scripting",      <span class="hl3">// For programmatic script injection</span>
+    "downloads",      <span class="hl3">// For exporting results</span>
+    "notifications"   <span class="hl3">// For status alerts</span>
+  ],
+  <span class="hl">"host_permissions"</span>: [
+    "https://chat.deepseek.com/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://www.perplexity.ai/*",
+    "https://copilot.microsoft.com/*",
+    "https://www.meta.ai/*",
+    "https://grok.com/*",
+    "https://poe.com/*",
+    "https://huggingface.co/chat/*",
+    "https://you.com/*",
+    "https://pi.ai/*",
+    "https://character.ai/*",
+    "https://chat.mistral.ai/*",
+    "https://coral.cohere.com/*",
+    <span class="hl3">// ... all supported AI domains</span>
+  ],
+  <span class="hl">"action"</span>: {
+    <span class="hl">"default_popup"</span>: "popup/popup.html",
+    <span class="hl">"default_title"</span>: "Super Linker",
+    <span class="hl">"default_icon"</span>: { "16":"icons/icon16.png","48":"icons/icon48.png","128":"icons/icon128.png" }
+  },
+  <span class="hl">"background"</span>: {
+    <span class="hl">"service_worker"</span>: "background/service-worker.js",
+    <span class="hl">"type"</span>: "module"
+  },
+  <span class="hl">"content_scripts"</span>: [
+    { <span class="hl">"matches"</span>: ["https://chat.deepseek.com/*"],
+      <span class="hl">"js"</span>: ["content-scripts/deepseek.js"],
+      <span class="hl">"run_at"</span>: "document_idle" },
+    { <span class="hl">"matches"</span>: ["https://chatgpt.com/*"],
+      <span class="hl">"js"</span>: ["content-scripts/chatgpt.js"],
+      <span class="hl">"run_at"</span>: "document_idle" },
+    <span class="hl3">// ... one entry per AI domain</span>
+  ]
+}
+</div>
+
+<h3>Content Script Injection Strategy</h3>
+<p>Each AI site gets its own content script file, but they all inherit from a shared <code>AdapterBase</code> class. This base class provides:</p>
+<ul>
+  <li><strong>Standardized Message Handling:</strong> All content scripts listen for the same message types (<code>CHECK_LOGIN</code>, <code>INJECT_PROMPT</code>, <code>CLICK_SUBMIT</code>, <code>READ_RESPONSE</code>, <code>GET_STATUS</code>) and respond with the same response shapes. The dispatcher doesn't need to know which site it's talking to — it uses a uniform interface.</li>
+  <li><strong>Selector Map:</strong> Each adapter defines a <code>selectors</code> object that maps abstract element names (<code>inputArea</code>, <code>submitButton</code>, <code>responseArea</code>, <code>stopButton</code>, <code>loginIndicator</code>) to actual DOM selectors. This makes adapting to site redesigns trivial — just update the selectors.</li>
+  <li><strong>Timing Configuration:</strong> Each site has different timing requirements. ChatGPT may need 2 seconds after injection before the button enables; Gemini might need 500ms. Each adapter specifies its own delays and poll intervals.</li>
+  <li><strong>Error Detection:</strong> Site-specific error patterns (e.g., "Something went wrong" on ChatGPT, "Your message was flagged" on Claude) are mapped to standardized error codes that the dispatcher can handle.</li>
+</ul>
+
+<div class="highlight amber">
+  <strong>⚠ Fragility Warning:</strong> Content scripts depend on DOM structure, which changes when AI websites update their UI. Each site update may break selectors. We need a strategy for this: automated selector health checks, a community-maintained selector database, and fallback heuristics (e.g., "find the largest textarea on the page").
+</div>
+</section>
+
+<section id="s7">
+<h2><span class="num">7</span>PC Access &amp; Desktop Integration</h2>
+
+<h3>The Problem</h3>
+<p>A browser extension runs in a sandbox. It has no direct access to the file system (beyond chrome.downloads), no access to local processes, no ability to execute shell commands, and no way to interact with desktop applications. This severely limits what our AI orchestration can do — we can generate code but can't run it, we can create files but can't save them to arbitrary locations, we can design workflows but can't trigger local tools.</p>
+
+<h3>Solution: Native Messaging Bridge</h3>
+<p>Chrome extensions can communicate with native desktop applications through <strong>Native Messaging</strong> (<code>chrome.runtime.connectNative</code>). This allows the extension to send and receive JSON messages to/from a native executable that runs on the user's machine with full desktop privileges.</p>
+
+<div class="diagram">
+┌─────────────────────────────────────────────────────────┐
+│              <span class="hl">NATIVE MESSAGING ARCHITECTURE</span>                      │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  <span class="hl">Browser Extension</span>        <span class="hl2">Native Host Application</span>              │
+│  ┌──────────────────┐        ┌──────────────────────┐   │
+│  │  Background      │        │  super-linker-host   │   │
+│  │  Service Worker  │◀──────▶│  (Python / Rust /    │   │
+│  │                  │  JSON  │   Node.js binary)    │   │
+│  │  sendMessage()   │  IPC   │                      │   │
+│  │  onMessage       │        │  stdin/stdout JSON   │   │
+│  └──────────────────┘        └──────────┬───────────┘   │
+│                                         │               │
+│                                         ▼               │
+│                          ┌────────────────────────────┐ │
+│                          │    <span class="hl2">Desktop API Layer</span>              │ │
+│                          │  ┌──────────┐              │ │
+│                          │  │ File     │ Read/Write   │ │
+│                          │  │ System   │ Any path     │ │
+│                          │  ├──────────┤              │ │
+│                          │  │ Process  │ Spawn,       │ │
+│                          │  │ Manager  │ monitor, kill│ │
+│                          │  ├──────────┤              │ │
+│                          │  │ Terminal │ Execute      │ │
+│                          │  │          │ commands     │ │
+│                          │  ├──────────┤              │ │
+│                          │  │ Clipboard│ Read/Write   │ │
+│                          │  ├──────────┤              │ │
+│                          │  │ OS       │ Notifications,│ │
+│                          │  │ Services │ shortcuts,    │ │
+│                          │  │          │ environment   │ │
+│                          │  └──────────┘              │ │
+│                          └────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+</div>
+
+<h3>What Native Messaging Enables</h3>
+<ul>
+  <li><strong>File System Access:</strong> Read and write files anywhere on the user's file system. The AI generates code → we save it directly to the user's project folder. The AI creates an image → we save it to the Desktop. No manual download needed.</li>
+  <li><strong>Process Execution:</strong> Run arbitrary commands on the user's machine. AI generates a Python script → we execute it with <code>python3 script.py</code> and capture the output. AI writes a shell command → we run it in a terminal and return the result.</li>
+  <li><strong>Development Environment Integration:</strong> Open files in VS Code, trigger git commands, run npm install, start dev servers. This turns Super Linker into a true development assistant like Claude Code or Cursor, but using any combination of AI models.</li>
+  <li><strong>Clipboard Integration:</strong> Read from and write to the system clipboard. Allows seamless copy-paste between AI outputs and other applications.</li>
+  <li><strong>Desktop Notifications:</strong> Native OS notifications when long-running tasks complete, even if the browser is minimized.</li>
+  <li><strong>Environment Variable Access:</strong> Read environment variables for configuration without storing secrets in the extension.</li>
+  <li><strong>Hardware Interaction:</strong> If needed, the native host can access USB, serial ports, or other hardware peripherals — though this is a niche use case.</li>
+</ul>
+
+<h3>Native Host Implementation Options</h3>
+<table>
+  <tr><th>Language</th><th>Pros</th><th>Cons</th><th>Recommendation</th></tr>
+  <tr><td><strong>Python</strong></td><td>Easy to write, cross-platform, huge stdlib, users may already have it</td><td>Requires Python runtime, slower startup, distribution is harder (must bundle or require install)</td><td><strong>Best for prototyping</strong> — quick to develop, easy to test. Use PyInstaller to bundle as a standalone binary for distribution.</td></tr>
+  <tr><td><strong>Node.js</strong></td><td>JS ecosystem, same language as extension, easy async, npm packages</td><td>Requires Node runtime, larger bundle size with pkg/nexe</td><td><strong>Good if team knows JS</strong> — code reuse with extension, but dependency-heavy.</td></tr>
+  <tr><td><strong>Rust</strong></td><td>Fast, single binary, no runtime needed, memory safe, cross-compile</td><td>Steep learning curve, longer development time</td><td><strong>Best for production</strong> — distributable as a single binary, maximum performance, minimal footprint. Use <code>serde_json</code> for JSON parsing.</td></tr>
+  <tr><td><strong>Go</strong></td><td>Fast, single binary, easy to write, great cross-compilation</td><td>Slightly larger binaries than Rust, GC overhead</td><td><strong>Good middle ground</strong> — easier than Rust, more portable than Python.</td></tr>
+</table>
+
+<h3>Security Considerations for PC Access</h3>
+<div class="highlight red">
+  <strong>⚠ CRITICAL:</strong> Native messaging gives our extension the ability to execute arbitrary commands and read/write any file. This is extremely powerful and extremely dangerous. The following safeguards are mandatory:
+</div>
+<ul>
+  <li><strong>User Confirmation for Every Action:</strong> Before executing any command or writing any file, the native host must send a confirmation prompt back to the extension, which displays it in the popup. The user must explicitly approve each action. No silent execution.</li>
+  <li><strong>Command Whitelist / Sandbox:</strong> The native host should enforce a whitelist of allowed commands (e.g., <code>python3</code>, <code>node</code>, <code>git</code>, <code>npm</code>, <code>mkdir</code>, <code>touch</code>). Shell injection attempts (<code>;rm -rf /</code>) must be detected and blocked. Path traversal attacks must be prevented.</li>
+  <li><strong>Sandboxed by Default:</strong> Operations should default to a sandboxed directory (e.g., <code>~/SuperLinkerWorkspace/</code>). Only if the user explicitly grants broader access should the host operate outside this directory.</li>
+  <li><strong>Audit Log:</strong> Every native host action must be logged to a file with a timestamp, the command/file path, and whether the user approved or denied it. These logs help diagnose issues and detect misuse.</li>
+  <li><strong>Timeout &amp; Kill Switch:</strong> Long-running processes should have configurable timeouts (default: 30 seconds). Users must have a "Kill All" button in the popup that sends an abort signal to the native host, which terminates all child processes.</li>
+  <li><strong>Minimal Permissions:</strong> The native host should run with the least privilege necessary. It should not run as root/admin. On Unix, it should be a regular user process. On Windows, it should not request administrator privileges.</li>
+</ul>
+
+<h3>Installation Flow for Native Host</h3>
+<ol>
+  <li><strong>Detection:</strong> On first launch, the extension checks if the native host is installed by attempting to connect via <code>chrome.runtime.connectNative('com.superlinker.host')</code>. If connection fails, the host is not installed.</li>
+  <li><strong>Download Prompt:</strong> The extension directs the user to download the native host binary for their OS. The download page auto-detects the OS and provides the correct binary.</li>
+  <li><strong>Installation:</strong> On macOS/Linux, the user runs <code>./install.sh</code> which places the binary in the correct location and registers the native messaging manifest (<code>~/.config/google-chrome/NativeMessagingHosts/com.superlinker.host.json</code>). On Windows, an installer does the equivalent.</li>
+  <li><strong>Verification:</strong> After installation, the extension retries the connection. If successful, it sends a handshake message and confirms the version. The user sees a green "PC Connected" indicator in the popup.</li>
+  <li><strong>Permission Granting:</strong> On first successful connection, the user is asked to grant workspace access. They can choose a default workspace directory or grant full filesystem access. This permission is stored and can be revoked in settings.</li>
+</ol>
+
+<h3>What We Can Do WITHOUT Native Messaging (Browser-Only)</h3>
+<p>Even without the native host, Super Linker is still powerful. These capabilities work entirely in the browser:</p>
+<ul>
+  <li><strong>AI-to-AI Communication:</strong> The core orchestration — one AI routes tasks to other AIs — works entirely through browser tabs. No native access needed.</li>
+  <li><strong>Copy to Clipboard:</strong> We can use <code>navigator.clipboard.writeText()</code> from the popup to copy individual results.</li>
+  <li><strong>Download Files:</strong> We can use <code>chrome.downloads.download()</code> or <code>URL.createObjectURL()</code> to save files to the Downloads folder. This covers basic export needs.</li>
+  <li><strong>In-Browser Execution (Limited):</strong> We can execute JavaScript code in the context of the popup or an extension page. The AI generates JavaScript? We can run it in a sandboxed iframe. This is limited but useful for web-related code generation.</li>
+  <li><strong>Local Storage:</strong> IndexedDB in the extension context can store large amounts of data — full session history, cached responses, user preferences.</li>
+</ul>
+
+<div class="highlight green">
+  <strong>Recommendation:</strong> Build the browser-only version first (Phases 1-3). Add native messaging for PC access only after the core orchestration is stable. Most users will benefit from AI routing alone, and the native host adds significant complexity, security concerns, and installation friction. Let the value of the core system speak for itself before asking users to install a desktop component.
+</div>
+</section>
+
+<section id="s8">
+<h2><span class="num">8</span>Security Model</h2>
+
+<h3>Threat Analysis</h3>
+<table>
+  <tr><th>Threat</th><th>Severity</th><th>Mitigation</th></tr>
+  <tr><td>Malicious prompt injection via AI output</td><td>High</td><td>Sanitize all AI responses before processing. The parser strips HTML/script tags from responses. The dispatcher never evaluates AI output as code without explicit user approval.</td></tr>
+  <tr><td>Content script access to AI websites</td><td>Medium</td><td>Content scripts run in isolated worlds. They can only access the DOM of their host page, not the extension's internal state. Messages to/from content scripts are validated against a schema.</td></tr>
+  <tr><td>Tab hijacking</td><td>Low</td><td>We only inject into tabs matching our known URL patterns. The tab manager checks that the tab URL matches the expected domain before sending any commands.</td></tr>
+  <tr><td>Data exfiltration via AI output</td><td>Medium</td><td>All processing is local. AI responses stay in the user's browser. No data is sent to any external server besides the AI websites the user already trusts. The extension has no analytics or telemetry.</td></tr>
+  <tr><td>Native host command injection</td><td>Critical</td><td>The native host must validate and sanitize all commands received from the extension. Use parameterized command execution (not string interpolation). Maintain a command whitelist. Require user confirmation for every action.</td></tr>
+  <tr><td>XSS in popup UI</td><td>Medium</td><td>AI-generated content may contain script tags. The popup uses <code>textContent</code> (not <code>innerHTML</code>) for displaying AI responses. If HTML rendering is needed, use a sanitizer library like DOMPurify.</td></tr>
+  <tr><td>Session data leakage via storage sync</td><td>Low</td><td>Use <code>chrome.storage.local</code> (not <code>sync</code>) for session data. Sync storage would upload prompt/response data to the user's Chrome account cloud — a privacy risk we must explicitly warn about.</td></tr>
+</table>
+
+<h3>Privacy Guarantees</h3>
+<ul>
+  <li><strong>No external servers:</strong> Super Linker communicates only with AI websites the user chooses. There is no Super Linker backend, no analytics server, no telemetry. Extension code is entirely client-side.</li>
+  <li><strong>No API key storage:</strong> Since we use browser automation instead of APIs, we never ask for, store, or transmit API keys.</li>
+  <li><strong>Session isolation:</strong> Each Super Linker session is self-contained. Sessions are not shared between browser profiles, devices, or users.</li>
+  <li><strong>User controls data retention:</strong> Users can clear all stored sessions, cached responses, and logs from the settings panel. Data older than a configurable number of days is auto-purged.</li>
+  <li><strong>Transparent operation:</strong> Every action the extension takes (tab opened, prompt injected, response read) is logged to the extension's internal log viewer. Users can inspect exactly what happened.</li>
+</ul>
+
+<h3>Permission Justifications</h3>
+<p>Chrome extensions must request permissions. Here's why we need each one and what we do with it:</p>
+<table>
+  <tr><th>Permission</th><th>Why We Need It</th><th>What We DO NOT Do</th></tr>
+  <tr><td><code>storage</code></td><td>Persist user settings, session state, and result cache</td><td>Never sync sensitive data to cloud</td></tr>
+  <tr><td><code>tabs</code></td><td>Create/open/query/update tabs for each AI service</td><td>Never read tab content unrelated to AI sites</td></tr>
+  <tr><td><code>scripting</code></td><td>Inject content scripts on demand into AI site tabs</td><td>Never inject scripts into non-AI sites</td></tr>
+  <tr><td><code>downloads</code></td><td>Export results as files to user's Downloads folder</td><td>Never download files without user action</td></tr>
+  <tr><td><code>notifications</code></td><td>Alert user when long tasks complete or need attention</td><td>Never spam notifications</td></tr>
+  <tr><td><code>host_permissions</code></td><td>Access specific AI websites' DOM via content scripts</td><td>Never access any domain not on the allowlist</td></tr>
+</table>
+</section>
+
+<section id="s9">
+<h2><span class="num">9</span>Data Flow &amp; State Management</h2>
+
+<h3>State Machine</h3>
+<p>The entire system operates as a state machine. Every component has a well-defined set of states and transitions:</p>
+
+<div class="diagram">
+<span class="hl">SESSION STATES:</span>
+
+  <span class="hl3">CREATED</span> ──▶ <span class="hl3">ORCHESTRATING</span> ──▶ <span class="hl3">DISPATCHING</span> ──▶ <span class="hl3">COLLECTING</span> ──▶ <span class="hl3">COMPLETED</span>
+      │                  │                  │                 │
+      ▼                  ▼                  ▼                 ▼
+  <span class="hl4">ERROR</span>            <span class="hl4">ERROR</span>            <span class="hl4">ERROR</span>            <span class="hl4">ERROR</span>
+
+<span class="hl">TASK STATES:</span>
+  <span class="hl3">PENDING</span> ──▶ <span class="hl3">READY</span> ──▶ <span class="hl3">IN_PROGRESS</span> ──▶ <span class="hl3">COMPLETED</span>
+                    │                                  │
+                    ▼                                  ▼
+                <span class="hl4">BLOCKED</span>                       <span class="hl4">FAILED</span>
+
+<span class="hl">TAB STATES:</span>
+  <span class="hl3">CLOSED</span> ──▶ <span class="hl3">LOADING</span> ──▶ <span class="hl3">READY</span> ──▶ <span class="hl3">INJECTING</span> ──▶ <span class="hl3">GENERATING</span> ──▶ <span class="hl3">DONE</span>
+                                      │                      │
+                                      ▼                      ▼
+                                  <span class="hl4">ERROR</span>                <span class="hl4">TIMEOUT</span>
+</div>
+
+<h3>Data Structures</h3>
+<div class="diagram" style="white-space:pre-wrap;font-family:inherit">
+// Session object (persisted to chrome.storage.session)
+{
+  id: "uuid-v4",
+  createdAt: 1717200000000,
+  masterPrompt: "Build a React calculator...",
+  selectedModels: ["deepseek", "chatgpt", "claude", "gemini"],
+  parameters: {
+    maxExecutionTime: 600000,     // 10 min
+    parallelExecution: true,
+    maxRetries: 2,
+    streamResults: false
+  },
+  orchestratorResult: {
+    rawResponse: "...",
+    parsedTasks: [...],
+    dependencyGraph: {...},
+    executionOrder: ["task-1", "task-2", ...]
+  },
+  tasks: {
+    "task-1": {
+      id: "task-1",
+      model: "chatgpt",
+      prompt: "Write a React component...",
+      dependencies: [],
+      priority: 1,
+      status: "completed",
+      retries: 0,
+      assignedAt: 1717200005000,
+      completedAt: 1717200015000,
+      response: "...",
+      error: null,
+      executionTime: 10000
+    },
+    "task-2": {
+      id: "task-2",
+      model: "claude",
+      prompt: "Review the code for...",
+      dependencies: ["task-1"],
+      priority: 2,
+      status: "pending",
+      retries: 0,
+      assignedAt: null,
+      completedAt: null,
+      response: null,
+      error: null,
+      executionTime: null
+    }
+  },
+  consolidatedResult: {
+    format: "markdown",
+    content: "# Results\n\n## ChatGPT: Component\n...\n## Claude: Review\n..."
+  },
+  status: "completed",           // created | orchestrating | dispatching | collecting | completed | error
+  error: null,                    // { code: "...", message: "..." } if any
+  metrics: {
+    totalTasks: 2,
+    completedTasks: 1,
+    failedTasks: 0,
+    totalExecutionTime: 15000,    // ms
+    tokensGenerated: 2500         // rough estimate
+  }
+}
+</div>
+
+<h3>Storage Strategy</h3>
+<table>
+  <tr><th>Storage Type</th><th>Data Stored</th><th>Lifetime</th><th>Access Pattern</th></tr>
+  <tr><td><code>chrome.storage.session</code></td><td>Current active session, in-memory state, temp messages</td><td>Browser session (cleared on browser close)</td><td>Frequent reads/writes (every state change)</td></tr>
+  <tr><td><code>chrome.storage.local</code></td><td>Settings, saved sessions, AI model configurations, selector maps</td><td>Persistent until user clears or uninstalls</td><td>Infrequent reads (on load), occasional writes (on save)</td></tr>
+  <tr><td><code>IndexedDB</code> (extension context)</td><td>Full session history with all prompts and responses (large data)</td><td>Persistent, user-managed</td><td>Write once per session, read on history view</td></tr>
+  <tr><td><code>localStorage</code> (popup)</td><td>UI state (collapsed sections, scroll position, last selected model)</td><td>Persistent until cleared</td><td>Frequent small reads/writes</td></tr>
+</table>
+</section>
+
+<section id="s10">
+<h2><span class="num">10</span>Orchestrator Prompt Engineering</h2>
+
+<h3>The Most Critical Component</h3>
+<p>The orchestrator prompt is the single most important piece of the entire system. If DeepSeek doesn't reliably produce structured, parseable output, the whole pipeline breaks. This prompt must be meticulously engineered and tested.</p>
+
+<h3>Prompt Structure</h3>
+<div class="diagram" style="white-space:pre-wrap;font-family:inherit">
+<span class="hl">┌─ SYSTEM PROMPT ──────────────────────────────────────────────┐</span>
+│                                                              │
+│  You are Super Linker, an AI orchestration engine. Your job  │
+│  is to analyze a user's complex request and break it into    │
+│  sub-tasks that can be assigned to different AI models.      │
+│                                                              │
+│  <span class="hl2">## Available AI Models</span>                                   │
+│                                                              │
+│  Here are the AI models you can assign tasks to:             │
+│                                                              │
+│  <span class="hl3">chatgpt</span>    : Best for general conversation, creative      │
+│               writing, brainstorming, and coding             │
+│  <span class="hl3">claude</span>     : Best for long-form analysis, document         │
+│               review, careful reasoning, and safe outputs    │
+│  <span class="hl3">gemini</span>     : Best for multimodal tasks (images, audio),    │
+│               large context understanding, Google integration │
+│  <span class="hl3">deepseek</span>   : (You) Best for logical reasoning, math,        │
+│               coding, and structured task decomposition      │
+│  <span class="hl3">perplexity</span> : Best for research with real-time web           │
+│               search and cited sources                       │
+│  [<span class="hl3">...12+ more models with capabilities</span>]                     │
+│                                                              │
+│  <span class="hl2">## Output Format</span>                                          │
+│                                                              │
+│  You MUST respond in the following structured format. Do NOT │
+│  add any text outside these tags:                            │
+│                                                              │
+│  &lt;super-linker-plan&gt;                                          │
+│    &lt;summary&gt;A brief 1-2 sentence summary of your plan&lt;/summary&gt; │
+│    &lt;tasks&gt;                                                   │
+│      &lt;task id="1"&gt;                                            │
+│        &lt;model&gt;chatgpt&lt;/model&gt;                                 │
+│        &lt;prompt&gt;                                               │
+│          The detailed sub-prompt to send to this model.      │
+│          Include all context needed.                         │
+│        &lt;/prompt&gt;                                              │
+│        &lt;depends-on&gt;&lt;/depends-on&gt;  &lt;!-- Empty = no deps --&gt;     │
+│        &lt;priority&gt;1&lt;/priority&gt;       &lt;!-- 1 = highest --&gt;        │
+│        &lt;expected-output&gt;Briefly describe what output is       │
+│          expected from this task.                            │
+│        &lt;/expected-output&gt;                                    │
+│      &lt;/task&gt;                                                  │
+│      &lt;task id="2"&gt;                                            │
+│        &lt;model&gt;claude&lt;/model&gt;                                  │
+│        &lt;prompt&gt;                                               │
+│          Sub-prompt that may reference task 1's output.      │
+│        &lt;/prompt&gt;                                              │
+│        &lt;depends-on&gt;1&lt;/depends-on&gt;                             │
+│        &lt;priority&gt;2&lt;/priority&gt;                                 │
+│      &lt;/task&gt;                                                  │
+│    &lt;/tasks&gt;                                                  │
+│    &lt;final-instruction&gt;                                        │
+│      Optional: how to synthesize all results at the end.     │
+│    &lt;/final-instruction&gt;                                      │
+│  &lt;/super-linker-plan&gt;                                         │
+│                                                              │
+│  <span class="hl2">## Rules</span>                                                  │
+│                                                              │
+│  1. Always use the exact XML tags shown above.              │
+│  2. Assign each task to the model BEST suited for it.       │
+│  3. Break complex tasks into the smallest reasonable pieces.│
+│  4. Use &lt;depends-on&gt; to create dependencies only when a task  │
+│     logically requires another task's output.               │
+│  5. Set priority 1 for must-haves, 5 for nice-to-haves.    │
+│  6. If a task doesn't fit any model, use "any" as model.   │
+│  7. Keep sub-prompts self-contained with all needed context.│
+│  8. Do NOT add any commentary outside the XML structure.    │
+│                                                              │
+│  <span class="hl2">## Examples</span>                                              │
+│                                                              │
+│  [2-3 examples of task decomposition for different           │
+│   types of requests]                                        │
+│                                                              │
+<span class="hl">└──────────────────────────────────────────────────────────────┘</span>
+</div>
+
+<h3>Prompt Design Principles</h3>
+<ul>
+  <li><strong>XML over JSON:</strong> We use XML-like tags (not JSON) because LLMs are demonstrably better at generating well-formed XML than valid JSON. XML is also easier to parse with regex when the structure is simple and predictable.</li>
+  <li><strong>Explicit Constraints:</strong> The prompt explicitly tells the model what NOT to do ("Do NOT add any text outside these tags"). LLMs respond well to negative constraints when they're clear and specific.</li>
+  <li><strong>Model Capability Catalog:</strong> We provide a curated list of available models with short capability descriptions. This is the "router's database" that the orchestrator uses to make assignments. Keeping it accurate is crucial — if ChatGPT's description says "best for coding" when Claude is actually better, the routing quality suffers.</li>
+  <li><strong>Few-Shot Examples:</strong> 2-3 worked examples at the end of the prompt significantly improve output quality. Examples should cover different scenarios: creative (blog + image + social), technical (code + test + docs), and research (search + summarize + synthesize).</li>
+  <li><strong>Self-Correction Instruction:</strong> A line at the end asking the model to "Review your output. Are all tags properly closed? Are tasks assigned to the best models?" This triggers the model's internal review mechanism and reduces formatting errors.</li>
+</ul>
+
+<h3>Parser Design</h3>
+<p>The parser must be robust against common LLM output issues:</p>
+<table>
+  <tr><th>Issue</th><th>LLM Behavior</th><th>Parser Handling</th></tr>
+  <tr><td>Extra text outside tags</td><td>May add "Here is my plan:" before the XML</td><td>Strip everything before <code>&lt;super-linker-plan&gt;</code> and after <code>&lt;/super-linker-plan&gt;</code></td></tr>
+  <tr><td>Unclosed tags</td><td>May forget <code>&lt;/task&gt;</code> on the last task</td><td>Auto-close tags at end of input. Use lenient parser.</td></tr>
+  <tr><td>Wrong model name</td><td>May write "ChatGPT" instead of "chatgpt"</td><td>Normalize: lowercase, strip spaces, fuzzy-match against known models. "Chat GPT" → "chatgpt"</td></tr>
+  <tr><td>Nested tags in prompts</td><td>Sub-prompt may contain HTML or code with angle brackets</td><td>Use CDATA-like sections or escape angle brackets in prompts. The parser knows prompt content is raw text.</td></tr>
+  <tr><td>Empty depends-on</td><td>May omit the tag entirely for tasks with no deps</td><td>Default to empty dependency array if tag is missing.</td></tr>
+  <tr><td>Extra attributes</td><td>May add id="task-1" instead of id="1"</td><td>Extract numeric ID via regex, accept string IDs.</td></tr>
+</table>
+</section>
+
+<section id="s11">
+<h2><span class="num">11</span>Implementation Phases</h2>
+
+<div class="phases">
+  <div class="phase-card">
+    <div class="phase-num">Phase 0 • Foundation</div>
+    <h4>Minimal Viable Extension</h4>
+    <p>Set up the Chrome extension skeleton with manifest, popup with a single textarea, background service worker, and a content script for DeepSeek. Verify message passing works.</p>
+    <div class="tags">
+      <span>manifest.json</span>
+      <span>popup.html</span>
+      <span>service-worker.js</span>
+      <span>content-script.js</span>
+    </div>
+  </div>
+  <div class="phase-card">
+    <div class="phase-num">Phase 1 • Core Orchestration</div>
+    <h4>DeepSeek as Router</h4>
+    <p>Full prompt engineering for the orchestrator. Build the injector, submitter, and response reader for DeepSeek. Implement the structured output parser. Verify task decomposition works reliably.</p>
+    <div class="tags">
+      <span class="green">Prompt Engineering</span>
+      <span>Parser</span>
+      <span>Orchestrator Engine</span>
+    </div>
+  </div>
+  <div class="phase-card">
+    <div class="phase-num">Phase 2 • Multi-Model Support</div>
+    <h4>Add 5 Worker Models</h4>
+    <p>Build content scripts for ChatGPT, Claude, Gemini, Perplexity, and Grok. Each adapter handles login detection, prompt injection, submission, and response reading. Implement the dispatcher for task routing.</p>
+    <div class="tags">
+      <span>ChatGPT</span>
+      <span>Claude</span>
+      <span>Gemini</span>
+      <span>Perplexity</span>
+      <span>Grok</span>
+    </div>
+  </div>
+  <div class="phase-card">
+    <div class="phase-num">Phase 3 • Pipeline UI</div>
+    <h4>Real-Time Execution View</h4>
+    <p>Build the full popup UI with: pipeline visualization showing task progress, live response streaming, result panels with syntax highlighting, session history browser, and export functionality.</p>
+    <div class="tags">
+      <span class="amber">UI/UX</span>
+      <span>Real-time Updates</span>
+      <span>Export</span>
+    </div>
+  </div>
+  <div class="phase-card">
+    <div class="phase-num">Phase 4 • PC Bridge</div>
+    <h4>Native Messaging Host</h4>
+    <p>Build the native host application (Python prototype first). Implement file read/write, command execution, clipboard access, and workspace management. Add security layer with confirmation prompts and audit logging.</p>
+    <div class="tags">
+      <span class="red">Security</span>
+      <span>Python/Rust</span>
+      <span>Native Messaging</span>
+    </div>
+  </div>
+  <div class="phase-card">
+    <div class="phase-num">Phase 5 • Scale &amp; Polish</div>
+    <h4>Expand to All 50 AIs</h4>
+    <p>Add content scripts for all 50 AI websites. Implement selector health monitoring with auto-fallback heuristics. Add user-contributed selector database. Performance optimization, error recovery, comprehensive logging.</p>
+    <div class="tags">
+      <span>50 Models</span>
+      <span>Auto-healing</span>
+      <span>Optimization</span>
+    </div>
+  </div>
+  <div class="phase-card">
+    <div class="phase-num">Phase 6 • Advanced Features</div>
+    <h4>Feedback Loops &amp; Agents</h4>
+    <p>Implement iterative refinement loops (task output feeds back into orchestrator for revision). Add persistent agent mode (AI runs autonomously with periodic check-ins). Collaborative sessions (multiple users share a session via WebRTC).</p>
+    <div class="tags">
+      <span class="green">Agent Mode</span>
+      <span>Feedback Loops</span>
+      <span>Collaborative</span>
+    </div>
+  </div>
+</div>
+
+<h3>Estimated Timeline</h3>
+<table>
+  <tr><th>Phase</th><th>Duration</th><th>Deliverable</th></tr>
+  <tr><td>0 — Foundation</td><td>2-3 days</td><td>Working skeleton, message passing verified</td></tr>
+  <tr><td>1 — Orchestrator</td><td>5-7 days</td><td>DeepSeek reliably decomposes tasks into structured plans</td></tr>
+  <tr><td>2 — Multi-Model</td><td>7-10 days</td><td>5 worker models functional, dispatcher working end-to-end</td></tr>
+  <tr><td>3 — UI</td><td>5-7 days</td><td>Full popup with pipeline view, results, export, history</td></tr>
+  <tr><td>4 — PC Bridge</td><td>10-14 days</td><td>Native host with file/terminal/clipboard access, security layer</td></tr>
+  <tr><td>5 — Scale</td><td>7-10 days</td><td>All 50 models, health monitoring, stabilization</td></tr>
+  <tr><td>6 — Advanced</td><td>10-14 days</td><td>Feedback loops, agent mode, collaboration features</td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>~7-9 weeks</strong></td><td><strong>Full production-ready Super Linker system</strong></td></tr>
+</table>
+</section>
+
+<section id="s12">
+<h2><span class="num">12</span>Challenges &amp; Mitigations</h2>
+
+<h3>Technical Challenges</h3>
+<h4>C1: DOM Fragility — AI Websites Change Their UI Frequently</h4>
+<p>This is the single biggest risk to the project. ChatGPT, Claude, and other sites frequently update their frontend, changing class names, element IDs, and DOM structure. A content script that works today may break tomorrow without warning.</p>
+<p><strong>Mitigations:</strong></p>
+<ul>
+  <li><strong>Selector Abstraction Layer:</strong> Adapters use multiple fallback selectors (by attribute, by role, by text content, by position) instead of relying on a single CSS selector. Example: <code>button[data-testid="send-button"] || button[aria-label="Send"] || button:has(svg.send-icon) || form button:last-child</code></li>
+  <li><strong>Health Check Pings:</strong> Each content script runs a self-test on page load. It checks if all required selectors resolve to DOM elements. If any fail, it reports the failure to the background script with diagnostic info.</li>
+  <li><strong>Community Selector Database:</strong> Maintain a crowd-sourced database of selectors (hosted as a simple JSON file on GitHub). Users can submit selector updates when sites change. The extension periodically checks for updates.</li>
+  <li><strong>Visual Heuristic Fallback:</strong> If all known selectors fail, the adapter falls back to visual heuristics: "find the largest textarea on the page" or "find the only button that's not disabled after typing in the textarea." This is surprisingly robust.</li>
+  <li><strong>User Notification:</strong> If an adapter can't find the required elements, it shows a clear message: "Super Linker can't find the input box on [site]. The site may have updated. Click here to try auto-repair."</li>
+</ul>
+
+<h4>C2: Browser Tab Management Complexity</h4>
+<p>Managing 5+ tabs simultaneously, each in different states (loading, generating, done, errored), is complex. Tabs can crash, navigate away, or get closed by the user. The background service worker can be killed by Chrome if it uses too much memory.</p>
+<p><strong>Mitigations:</strong></p>
+<ul>
+  <li><strong>Service Worker Persistence:</strong> Use <code>chrome.storage.session</code> to persist state on every transition. If the service worker is killed and restarted, it can reconstruct its state from storage.</li>
+  <li><strong>Tab Health Monitoring:</strong> Every 30 seconds, the tab manager queries the status of all managed tabs. If a tab is unresponsive, crashed, or navigated away from the expected URL, it's marked as failed and its task is reassigned or retried.</li>
+  <li><strong>Graceful Degradation:</strong> If tab management becomes too complex (e.g., >10 concurrent tasks), the system falls back to sequential execution with a single tab per model, queuing tasks instead of parallelizing.</li>
+  <li><strong>User-Activated Tabs:</strong> When the dispatcher needs to use a tab, it can optionally focus the tab and show a brief flash notification so the user isn't confused by invisible background activity.</li>
+</ul>
+
+<h4>C3: Rate Limiting &amp; Captcha Triggers</h4>
+<p>AI websites have abuse detection. Rapid automated interactions (opening tabs, injecting prompts, clicking submit) may trigger captchas, rate limiting, or temporary bans.</p>
+<p><strong>Mitigations:</strong></p>
+<ul>
+  <li><strong>Human-like Delays:</strong> Random delays between actions (typing speed varies, submit click delay varies 1-3 seconds). No action is instant — we simulate realistic human interaction patterns.</li>
+  <li><strong>Session Persistence:</strong> The same browser session is reused (we don't clear cookies or open incognito tabs). This maintains the user's logged-in state and avoids triggering new-session detection.</li>
+  <li><strong>Rate Limiting Awareness:</strong> The dispatcher tracks how many requests were sent to each site in the last hour. If approaching reasonable limits, it slows down or pauses execution.</li>
+  <li><strong>Captcha Detection:</strong> Content scripts monitor for captcha indicators (certain images, text like "I'm not a robot", URL changes). If a captcha is detected, the task pauses and the user is notified to solve it manually. After solving, the task resumes.</li>
+  <li><strong>User Configurable Speed:</strong> Settings panel lets users choose interaction speed: "Fast" (minimal delays, risk of rate limits), "Normal" (balanced, default), "Slow" (maximum human-like, safest).</li>
+</ul>
+
+<h4>C4: Streaming Response Handling</h4>
+<p>Modern AI websites stream responses token by token (like ChatGPT's typewriter effect). Detecting when streaming is complete and reading the full response is non-trivial.</p>
+<p><strong>Mitigations:</strong></p>
+<ul>
+  <li><strong>Mutation Observer:</strong> Instead of polling, content scripts use <code>MutationObserver</code> to watch for DOM changes in the response area. When no new mutations occur for 2 seconds, we assume generation is complete.</li>
+  <li><strong>Stop Button Detection:</strong> Most AI UIs show a "stop" button during generation and hide it when complete. We monitor the stop button's presence as a completion signal.</li>
+  <li><strong>Duplicate Line Detection:</strong> If we read the response twice with 1-second interval and the text content is identical, generation is likely done. This handles sites that don't have a stop button indicator.</li>
+  <li><strong>Partial Result Fallback:</strong> If a timeout occurs during streaming, we capture whatever response text was generated so far. Partial results are better than no results.</li>
+</ul>
+
+<h3>Non-Technical Challenges</h3>
+<h4>C5: User Trust &amp; Privacy Concerns</h4>
+<p>Users may be uncomfortable installing a browser extension that has permissions to read and write data on AI websites. The concept of "an extension controlling my ChatGPT session" may feel invasive.</p>
+<p><strong>Mitigations:</strong></p>
+<ul>
+  <li>Open source the entire codebase from day one. No obfuscation, no telemetry, no analytics.</li>
+  <li>Publish a privacy policy that explicitly states: "We never collect, store, or transmit your data. Everything runs locally in your browser."</li>
+  <li>Show a permission education screen on first install explaining exactly why each permission is needed.</li>
+  <li>Provide a "Read-Only Mode" where the extension can see what's happening but cannot inject prompts or click buttons, for users who want to observe before they trust.</li>
+</ul>
+
+<h4>C6: Terms of Service Compliance</h4>
+<p>Most AI websites prohibit automated access in their ToS. While browser automation via extension is a gray area (it's still a human using the browser, just assisted), there's risk of account restrictions.</p>
+<p><strong>Mitigations:</strong></p>
+<ul>
+  <li>This is a research/educational tool, not a commercial product targeting ToS violation.</li>
+  <li>The extension does not bypass any paywalls, does not scrape data at scale, does not exceed reasonable usage limits.</li>
+  <li>Users are responsible for their own accounts and usage. The extension provides tools; users decide how to use them.</li>
+  <li>If contacted by any AI platform, we will cooperate and adjust the extension's behavior for that platform.</li>
+</ul>
+</section>
+
+<section id="s13">
+<h2><span class="num">13</span>Future Scope</h2>
+
+<h3>Short-Term (Post-MVP)</h3>
+<ul>
+  <li><strong>Firefox &amp; Edge Support:</strong> Port the extension to Firefox (WebExtensions API) and Edge (Chromium, mostly compatible). The content script architecture is browser-agnostic; only the extension APIs need porting.</li>
+  <li><strong>Custom Model Configurations:</strong> Allow users to add their own AI websites by providing the URL, input selector, submit selector, and response selector. This makes the system infinitely extensible without us needing to write adapters.</li>
+  <li><strong>Prompt Templates Library:</strong> A library of community-curated orchestrator prompt templates optimized for different task types (coding, writing, research, design). Users can select the best template for their task.</li>
+  <li><strong>Session Comparison:</strong> Run the same master prompt through different AI pools and compare results side-by-side. Useful for finding which model combination works best for each task type.</li>
+  <li><strong>Scheduled / Batch Execution:</strong> Schedule tasks to run at specific times. Process a queue of prompts overnight and review results in the morning.</li>
+</ul>
+
+<h3>Medium-Term (3-6 Months)</h3>
+<ul>
+  <li><strong>Desktop Application Wrapper:</strong> Package the extension + native host as a desktop application using Tauri or Electron. This removes the browser dependency entirely and gives a more native feel. The web AI tabs would open in an embedded WebView.</li>
+  <li><strong>AI Model Marketplace:</strong> A community-driven registry where developers can submit adapters for new AI websites. Each submission includes selectors, capability descriptions, and test results. Users can install adapters with one click.</li>
+  <li><strong>Local Model Integration:</strong> Integrate with Ollama, llama.cpp, or WebLLM to run small models locally for tasks that don't need a powerful cloud AI (e.g., classification, summarization, formatting). This reduces dependency on external sites for simple tasks.</li>
+  <li><strong>Visual Workflow Builder:</strong> Instead of relying on the orchestrator AI to design the task graph, let users visually design workflows using a drag-and-drop interface. Connect AI nodes, define inputs/outputs, set conditions and loops.</li>
+  <li><strong>Multi-User Collaboration:</strong> Share a Super Linker session between multiple browsers using WebRTC or a simple signaling server. Users can collaboratively design workflows, review AI outputs, and approve actions.</li>
+</ul>
+
+<h3>Long-Term (6-12 Months)</h3>
+<ul>
+  <li><strong>Autonomous Agent Mode:</strong> The system runs as a persistent agent with goals. Instead of a single prompt, the user gives a long-term objective. The orchestrator continuously breaks down the objective, assigns tasks, learns from results, and iterates. The agent pauses when it needs user input or important decisions.</li>
+  <li><strong>Knowledge Base &amp; Memory:</strong> The system maintains a persistent knowledge base (using IndexedDB or a local vector database). Past task results, user preferences, and learned patterns are stored and retrieved by the orchestrator for context. Over time, the system gets better at routing tasks for each user.</li>
+  <li><strong>Browser-Based Fine-Tuning:</strong> Use user feedback (approve/disapprove specific AI responses) to fine-tune routing decisions. If the user always rejects Claude's code output and accepts ChatGPT's, the router learns to prefer ChatGPT for coding tasks for that user.</li>
+  <li><strong>Plugin System:</strong> Third-party developers can write plugins that extend Super Linker's capabilities. Plugins can add new AI adapters, new output processors, new export formats, or new UI components. A plugin SDK with documentation and examples makes this accessible.</li>
+  <li><strong>Cross-Platform Desktop Bridge:</strong> Extend the native messaging host to support deeper OS integration: macOS Shortcuts, Windows Power Automate, Linux DBus. Super Linker becomes an automation hub connecting AIs to your entire digital environment.</li>
+  <li><strong>AI Safety Layer:</strong> A monitoring system that watches all AI outputs for harmful content, hallucinated facts, or security risks before they reach the user or get executed. This could use a local safety model (like Llama Guard) running in the browser via WebLLM.</li>
+</ul>
+
+<h3>The Ultimate Vision</h3>
+<div class="highlight green">
+  <strong>Super Linker's ultimate goal:</strong> To become the universal operating system for AI — a single interface that lets any user harness any AI model, on any website, for any task, all coordinated from one place, running entirely in their browser, without paying for API access or trusting third-party servers. It democratizes multi-agent AI systems, making them accessible to anyone with a browser and free accounts.
+</div>
+</section>
+
+<section id="s14">
+<h2><span class="num">14</span>Full File Manifest</h2>
+
+<p>Complete list of every file that will be created for the Super Linker project, organized by phase:</p>
+
+<table>
+  <tr><th>Phase</th><th>File Path</th><th>Purpose</th></tr>
+  <tr><td>0</td><td><code>extension/manifest.json</code></td><td>Extension configuration, permissions, host patterns</td></tr>
+  <tr><td>0</td><td><code>extension/popup/popup.html</code></td><td>Main popup shell with textarea and status area</td></tr>
+  <tr><td>0</td><td><code>extension/popup/popup.css</code></td><td>Popup styling (dark theme, responsive)</td></tr>
+  <tr><td>0</td><td><code>extension/popup/popup.js</code></td><td>Popup logic: prompt input, message passing, result display</td></tr>
+  <tr><td>0</td><td><code>extension/background/service-worker.js</code></td><td>Background entry: message routing, tab management, state init</td></tr>
+  <tr><td>0</td><td><code>extension/background/state-manager.js</code></td><td>Session CRUD, storage abstraction, crash recovery</td></tr>
+  <tr><td>0</td><td><code>extension/background/tab-manager.js</code></td><td>Tab lifecycle: create, find, activate, monitor, close</td></tr>
+  <tr><td>0</td><td><code>extension/lib/constants.js</code></td><td>All AI URLs, default selectors, timeouts, config values</td></tr>
+  <tr><td>0</td><td><code>extension/lib/message-types.js</code></td><td>Enum of all message types between components</td></tr>
+  <tr><td>0</td><td><code>extension/lib/utils.js</code></td><td>Shared utilities: debounce, throttle, deepClone, formatDuration</td></tr>
+  <tr><td>0</td><td><code>extension/lib/errors.js</code></td><td>Custom error classes: TabError, TimeoutError, ParseError</td></tr>
+  <tr><td>1</td><td><code>extension/background/orchestrator.js</code></td><td>Orchestration engine: coordinates decomposition → dispatch → collect</td></tr>
+  <tr><td>1</td><td><code>extension/background/router.js</code></td><td>Task decomposition logic (operates on parsed orchestrator output)</td></tr>
+  <tr><td>1</td><td><code>extension/background/prompt-generator.js</code></td><td>Constructs the orchestrator system prompt dynamically</td></tr>
+  <tr><td>1</td><td><code>extension/background/parser.js</code></td><td>Parses XML-like structured output into task objects</td></tr>
+  <tr><td>1</td><td><code>extension/background/dispatcher.js</code></td><td>Executes tasks: sends to content scripts, monitors progress, handles retries</td></tr>
+  <tr><td>1</td><td><code>extension/background/collector.js</code></td><td>Aggregates results, formats consolidated output</td></tr>
+  <tr><td>1</td><td><code>extension/content-scripts/lib/adapter-base.js</code></td><td>Base class for all site adapters with standard interface</td></tr>
+  <tr><td>1</td><td><code>extension/content-scripts/lib/dom-utils.js</code></td><td>Shared DOM helpers: typeText, clickButton, waitForElement</td></tr>
+  <tr><td>1</td><td><code>extension/content-scripts/lib/streaming-detector.js</code></td><td>Detects when streaming output is complete</td></tr>
+  <tr><td>1</td><td><code>extension/content-scripts/lib/mutation-watcher.js</code></td><td>MutationObserver wrapper for DOM change detection</td></tr>
+  <tr><td>1</td><td><code>extension/content-scripts/deepseek.js</code></td><td>DeepSeek adapter: selectors, timing, special handling</td></tr>
+  <tr><td>2</td><td><code>extension/content-scripts/chatgpt.js</code></td><td>ChatGPT adapter</td></tr>
+  <tr><td>2</td><td><code>extension/content-scripts/claude.js</code></td><td>Claude adapter</td></tr>
+  <tr><td>2</td><td><code>extension/content-scripts/gemini.js</code></td><td>Google Gemini adapter</td></tr>
+  <tr><td>2</td><td><code>extension/content-scripts/perplexity.js</code></td><td>Perplexity AI adapter</td></tr>
+  <tr><td>2</td><td><code>extension/content-scripts/grok.js</code></td><td>Grok adapter</td></tr>
+  <tr><td>2</td><td><code>extension/background/models/index.js</code></td><td>Model registry: maps model names to their capabilities and URLs</td></tr>
+  <tr><td>2</td><td><code>extension/background/models/deepseek.js</code></td><td>DeepSeek model config</td></tr>
+  <tr><td>2</td><td><code>extension/background/models/chatgpt.js</code></td><td>ChatGPT model config</td></tr>
+  <tr><td>2</td><td><code>extension/background/models/claude.js</code></td><td>Claude model config</td></tr>
+  <tr><td>2</td><td><code>extension/background/models/gemini.js</code></td><td>Gemini model config</td></tr>
+  <tr><td>2</td><td><code>extension/background/models/perplexity.js</code></td><td>Perplexity model config</td></tr>
+  <tr><td>2</td><td><code>extension/background/models/grok.js</code></td><td>Grok model config</td></tr>
+  <tr><td>3</td><td><code>extension/popup/components/prompt-input.js</code></td><td>Enhanced prompt textarea with templates</td></tr>
+  <tr><td>3</td><td><code>extension/popup/components/ai-selector.js</code></td><td>AI selection panel with status indicators</td></tr>
+  <tr><td>3</td><td><code>extension/popup/components/pipeline-view.js</code></td><td>Real-time task execution visualization</td></tr>
+  <tr><td>3</td><td><code>extension/popup/components/results-panel.js</code></td><td>Results display with syntax highlighting and collapsible sections</td></tr>
+  <tr><td>3</td><td><code>extension/popup/components/settings-panel.js</code></td><td>Settings: timing, models, export preferences</td></tr>
+  <tr><td>4</td><td><code>native-host/super-linker-host.py</code></td><td>Native host application (Python prototype)</td></tr>
+  <tr><td>4</td><td><code>native-host/requirements.txt</code></td><td>Python dependencies</td></tr>
+  <tr><td>4</td><td><code>native-host/com.superlinker.host.json</code></td><td>Native messaging manifest for host registration</td></tr>
+  <tr><td>4</td><td><code>native-host/install.sh</code></td><td>macOS/Linux installation script</td></tr>
+  <tr><td>4</td><td><code>native-host/install.bat</code></td><td>Windows installation script</td></tr>
+  <tr><td>4</td><td><code>extension/background/native-bridge.js</code></td><td>Native messaging communication handler</td></tr>
+  <tr><td>4</td><td><code>extension/popup/components/pc-access-panel.js</code></td><td>PC access controls: workspace selector, approval queue, audit log viewer</td></tr>
+  <tr><td>5</td><td><code>extension/content-scripts/*.js</code></td><td>Content scripts for all remaining AI websites (~45 more)</td></tr>
+  <tr><td>5</td><td><code>extension/background/selector-health.js</code></td><td>Selector monitoring and auto-repair system</td></tr>
+  <tr><td>5</td><td><code>extension/background/selector-fallbacks.json</code></td><td>Community-maintained fallback selector database</td></tr>
+  <tr><td>6</td><td><code>extension/background/feedback-loop.js</code></td><td>Iterative refinement: feed results back to orchestrator for revision</td></tr>
+  <tr><td>6</td><td><code>extension/background/agent-mode.js</code></td><td>Autonomous agent with persistent goals and periodic check-ins</td></tr>
+  <tr><td>6</td><td><code>extension/background/collaboration.js</code></td><td>WebRTC-based multi-user session sharing</td></tr>
+  <tr><td>—</td><td><code>extension/tests/unit/*.test.js</code></td><td>Unit tests for parser, router, state manager, etc.</td></tr>
+  <tr><td>—</td><td><code>extension/tests/integration/*.test.js</code></td><td>Integration tests for full orchestration flow</td></tr>
+  <tr><td>—</td><td><code>extension/docs/ARCHITECTURE.md</code></td><td>Detailed architecture documentation</td></tr>
+  <tr><td>—</td><td><code>extension/docs/ADDING_A_NEW_MODEL.md</code></td><td>Guide for contributing new AI adapters</td></tr>
+  <tr><td>—</td><td><code>extension/docs/TROUBLESHOOTING.md</code></td><td>Common issues and solutions</td></tr>
+  <tr><td>—</td><td><code>package.json</code></td><td>Project metadata, scripts, dependencies</td></tr>
+  <tr><td>—</td><td><code>README.md</code></td><td>Project overview, setup instructions, contribution guide</td></tr>
+  <tr><td>—</td><td><code>.gitignore</code></td><td>Git ignore rules</td></tr>
+  <tr><td>—</td><td><code>.eslintrc.json</code></td><td>ESLint configuration</td></tr>
+  <tr><td>—</td><td><code>webpack.config.js</code></td><td>Optional: build bundling configuration</td></tr>
+</table>
+
+<p><strong>Total Files: ~80+</strong> across all phases, approximately 15,000-25,000 lines of code at full completion.</p>
+</section>
+
+<footer>
+  Project Super Linker — Full Blueprint &amp; Documentation · v0.1 · Planning Phase<br>
+  This document represents the complete architectural plan. Implementation proceeds phase by phase.
+</footer>
+
+</div>
+</body>
+</html>
