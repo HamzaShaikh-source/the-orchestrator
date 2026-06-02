@@ -1,17 +1,22 @@
 (function () {
   'use strict';
 
+  /* DeepSeek content script — updated selectors for current DeepSeek UI */
   const S = {
     input: ['textarea', 'div[contenteditable="true"]'],
     submit: [
       'div.ds-button--primary.ds-button--filled',
       'div[role="button"].ds-button--primary',
+      'div.ds-button--iconLabelPrimary',
       'div[role="button"]',
     ],
     response: [
       '.ds-assistant-message-main-content',
       '.ds-markdown',
       '.ds-message',
+      '.ds-assistant-message',
+      '[class*="message-content"]',
+      '[class*="ds-assistant"]',
     ],
   };
 
@@ -116,9 +121,19 @@
     return new Promise((resolve) => {
       const start = Date.now();
       function check() {
-        const btn = $(S.submit);
-        if (btn && !btn.className.includes('ds-button--disabled')) {
+        /* Try exact match first */
+        let btn = $(S.submit);
+        if (btn && !btn.className.includes('ds-button--disabled') && !btn.hasAttribute('disabled') && btn.getAttribute('aria-disabled') !== 'true') {
           return resolve(btn);
+        }
+        /* Fallback: any visible submit-like div in the input area */
+        const allBtns = document.querySelectorAll('div[role="button"]:not([disabled]), div[class*="ds-button"]:not([disabled])');
+        for (const b of allBtns) {
+          const isLast = b === allBtns[allBtns.length - 1];
+          const nearInput = b.closest('textarea') || b.closest('[class*="composer"]') || b.closest('[class*="input-area"]');
+          if (b.offsetHeight > 0 && (isLast || nearInput)) {
+            return resolve(b);
+          }
         }
         if (Date.now() - start > timeout) return resolve(null);
         requestAnimationFrame(check);

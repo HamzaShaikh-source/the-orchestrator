@@ -1,14 +1,11 @@
 (function () {
   'use strict';
 
-  /* Generic HuggingFace Space content script.
-   * Spaces vary widely; this handles common patterns.
-   * Falls back to trying textarea + first enabled button.
-   */
+  /* HuggingChat content script (https://huggingface.co/chat/) */
   const S = {
-    input: ['textarea', 'input[type="text"]'],
-    submit: ['button[type="submit"]', 'button:has(svg)', '.run-button'],
-    response: ['.output', '.result', '.generation', '.output-area', '.result-box'],
+    input: ['textarea', 'input[type="text"]', '#chat-input', '[data-testid*="input"]', 'div[contenteditable="true"]'],
+    submit: ['button[type="submit"]', 'button[aria-label*="Send"]', '[data-testid*="send"]', '.run-button'],
+    response: ['.output', '.result', '.generation', '.output-area', '.result-box', '.prose', '[data-testid*="message"]', '.message'],
   };
 
   function $(sel) {
@@ -93,9 +90,17 @@
     const start = Date.now();
     while (Date.now() - start < timeout) {
       let btn = $(S.submit);
-      if (btn && !btn.disabled) return btn;
-      /* Fallback: any enabled button on the page */
+      if (btn && !btn.disabled && !btn.hasAttribute('aria-disabled')) return btn;
+      /* Fallback: any enabled visible button near the input */
       const all = document.querySelectorAll('button:not([disabled])');
+      for (const b of all) {
+        if (b.offsetHeight > 0 && b.offsetWidth > 0) {
+          /* Prefer buttons with send/submit-like text */
+          const txt = (b.textContent || '').toLowerCase();
+          if (txt.includes('send') || txt.includes('submit') || txt.includes('generate') || b.id.includes('send')) return b;
+        }
+      }
+      /* Last resort: first visible button */
       for (const b of all) {
         if (b.offsetHeight > 0 && b.offsetWidth > 0) return b;
       }
