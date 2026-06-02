@@ -1,7 +1,5 @@
 importScripts('shared.js', 'agents.js', 'task-planner.js', 'task-router.js', 'orchestrator.js');
 
-const DEEPSEEK_URL = 'https://chat.deepseek.com';
-const CHATGPT_URL = 'https://chatgpt.com';
 const DEFAULT_STATE = {
   step: 'idle', prompt: '', task: '',
   deepseekResponse: '', chatgptResponse: '',
@@ -27,6 +25,49 @@ async function getConvHistory() {
   const { convHistory } = await chrome.storage.local.get('convHistory');
   return convHistory || [];
 }
+
+/* ── Auto-refresh agent tabs on extension reload/install ── */
+
+const AGENT_DOMAINS = [
+  'chat.deepseek.com',
+  'chatgpt.com',
+  'gemini.google.com',
+  'www.perplexity.ai',
+  'huggingface.co',
+];
+
+async function refreshAgentTabs() {
+  console.log('[BG] Extension installed/reloaded — refreshing agent tabs to inject content scripts');
+  const tabs = await chrome.tabs.query({});
+  let refreshed = 0;
+  for (const tab of tabs) {
+    if (!tab.url) continue;
+    try {
+      const url = new URL(tab.url);
+      if (AGENT_DOMAINS.some(d => url.hostname.includes(d.replace('www.', '')))) {
+        await chrome.tabs.reload(tab.id);
+        refreshed++;
+      }
+    } catch {}
+  }
+  console.log(`[BG] Refreshed ${refreshed} agent tab(s)`);
+}
+
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log('[BG] Extension installed/updated:', details.reason);
+  /* Clear stale pipeline state */
+  chrome.storage.session.remove('multiState');
+  chrome.storage.session.remove('state');
+  /* Refresh agent tabs to inject updated content scripts */
+  if (details.reason === 'update' || details.reason === 'install') {
+    refreshAgentTabs();
+  }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  /* On browser start, refresh agent tabs that might have stale content scripts */
+  refreshAgentTabs();
+});
 
 async function saveConv(entry) {
   if (!entry?.url) return;

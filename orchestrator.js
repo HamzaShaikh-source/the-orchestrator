@@ -378,7 +378,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     /* ── 3. Execute (with retry, parallel for different agents) ── */
     const agentOutputs = {};
 
-    /* Group tasks by agent for potential parallel execution */
+    /* Group tasks by agent for parallel execution */
     const agentTaskGroups = {};
     for (const task of tasks) {
       task.status = 'pending';
@@ -389,31 +389,39 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
 
     await setMultiState({ tasks: [...tasks], step: 'running' });
 
-    /* Execute tasks sequentially within each agent group (but groups run in parallel) */
+    /* Execute tasks IN PARALLEL across different agents.
+       Tasks for the same agent run sequentially (one at a time per tab).
+       Different agents execute concurrently for maximum speed. */
     const groupEntries = Object.entries(agentTaskGroups);
-
-    for (const [agentId, agentTasks] of groupEntries) {
-      if (multiCancelled) throw new CancelError();
-      const agent = getAgent(agentId);
-      if (!agent) {
-        agentTasks.forEach(t => { t.status = 'error'; });
-        continue;
-      }
-
-      for (const task of agentTasks) {
+    const agentResults = await Promise.allSettled(
+      groupEntries.map(async ([agentId, agentTasks]) => {
         if (multiCancelled) throw new CancelError();
-        if (!agent) { task.status = 'error'; continue; }
-
-        task.status = 'in-progress';
-        await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
-        console.log(`[Orch] Running task on ${agent.name} (type: ${task.type})`);
-
-        try {
-          await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal);
-        } catch (err) {
-          if (err instanceof CancelError) throw err;
-          /* runTaskOnAgent already handles its own error recovery */
+        const agent = getAgent(agentId);
+        if (!agent) {
+          agentTasks.forEach(t => { t.status = 'error'; });
+          return;
         }
+
+        for (const task of agentTasks) {
+          if (multiCancelled) throw new CancelError();
+          task.status = 'in-progress';
+          await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
+          console.log(`[Orch] Running task on ${agent.name} (type: ${task.type})`);
+
+          try {
+            await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal);
+          } catch (err) {
+            if (err instanceof CancelError) throw err;
+            /* runTaskOnAgent already handles its own error recovery */
+          }
+        }
+      })
+    );
+
+    /* Log any parallel execution failures */
+    for (const result of agentResults) {
+      if (result.status === 'rejected' && !(result.reason instanceof CancelError)) {
+        console.error('[Orch] Parallel execution error:', result.reason?.message);
       }
     }
     if (multiCancelled) throw new CancelError();
