@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "DeepSeek → AI Bridge",
+  "version": "0.3.0",
+  "description": "Multi-agent AI orchestrator: DeepSeek, ChatGPT, Gemini, Perplexity, HuggingFace.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": [
+    "https://chat.deepseek.com/*",
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "https://www.perplexity.ai/*",
+    "https://huggingface.co/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["content-deepseek.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content-chatgpt.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content-gemini.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://www.perplexity.ai/*"],
+      "js": ["content-perplexity.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["https://huggingface.co/*"],
+      "js": ["content-huggingface.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DeepSeek → AI Bridge"
+  }
+}

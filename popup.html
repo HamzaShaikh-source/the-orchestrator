@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #090b10;
+      --panel: rgba(17, 21, 31, 0.86);
+      --panel-strong: rgba(23, 29, 42, 0.94);
+      --panel-soft: rgba(255, 255, 255, 0.045);
+      --line: rgba(255, 255, 255, 0.1);
+      --line-strong: rgba(255, 255, 255, 0.18);
+      --text: #f2f5fb;
+      --muted: #9aa4b8;
+      --dim: #687287;
+      --brand: #73e2c2;
+      --brand-2: #76a9ff;
+      --danger: #ff5d6c;
+      --success: #49d78c;
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 520px;
+      max-height: 640px;
+      overflow-y: auto;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      background:
+        radial-gradient(circle at 12% -10%, rgba(115, 226, 194, 0.18), transparent 34%),
+        radial-gradient(circle at 92% 6%, rgba(118, 169, 255, 0.18), transparent 30%),
+        linear-gradient(145deg, #080a0f 0%, #0d111a 48%, #0b0f16 100%);
+      color: var(--text);
+      padding: 16px;
+    }
+
+    ::selection { background: rgba(115, 226, 194, 0.28); }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.28); }
+
+    .shell {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025));
+      box-shadow: var(--shadow);
+      animation: rise-in 420ms ease both;
+    }
+
+    .shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      border-radius: inherit;
+      background: linear-gradient(115deg, rgba(115, 226, 194, 0.22), transparent 26%, transparent 72%, rgba(118, 169, 255, 0.16));
+      opacity: 0.52;
+    }
+
+    .content-wrap { position: relative; padding: 16px; }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(115, 226, 194, 0.95), rgba(118, 169, 255, 0.92));
+      color: #061019;
+      font-weight: 900;
+      box-shadow: 0 10px 28px rgba(115, 226, 194, 0.2);
+    }
+
+    .header h1 { font-size: 16px; line-height: 1.1; font-weight: 760; letter-spacing: 0; }
+    .header p { color: var(--muted); font-size: 11px; margin-top: 3px; }
+
+    button {
+      font: inherit;
+      border: 0;
+      cursor: pointer;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid rgba(115, 226, 194, 0.65); outline-offset: 2px; }
+
+    .ghost-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .ghost-btn:hover { background: rgba(255, 255, 255, 0.09); color: var(--text); border-color: var(--line-strong); }
+
+    .form-grid { display: grid; gap: 10px; }
+
+    .field { display: grid; gap: 6px; }
+
+    label, .field-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+    }
+
+    .hint { color: var(--dim); font-weight: 650; text-transform: none; letter-spacing: 0; }
+
+    textarea, input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(5, 8, 13, 0.55);
+      color: var(--text);
+      font: inherit;
+      padding: 10px 11px;
+      outline: none;
+      transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    }
+
+    textarea { resize: vertical; line-height: 1.45; }
+    textarea::placeholder, input::placeholder { color: #5f697b; }
+    textarea:focus, input:focus { border-color: rgba(115, 226, 194, 0.58); background: rgba(8, 12, 19, 0.76); box-shadow: 0 0 0 4px rgba(115, 226, 194, 0.08); }
+
+    #input { min-height: 74px; }
+    #task { min-height: 58px; }
+
+    .url-row {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr) 64px;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .tag {
+      color: var(--brand);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.55px;
+    }
+
+    .url-row input { min-height: 34px; padding: 7px 9px; font-size: 12px; }
+
+    .use-btn {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 780;
+    }
+
+    .use-btn:hover { color: var(--text); border-color: var(--line-strong); }
+    .use-btn.active { background: rgba(115, 226, 194, 0.16); color: var(--brand); border-color: rgba(115, 226, 194, 0.44); box-shadow: 0 0 0 3px rgba(115, 226, 194, 0.07); }
+
+    .loop-row {
+      display: grid;
+      grid-template-columns: 1fr 62px;
+      gap: 9px;
+      align-items: end;
+      margin-top: 2px;
+    }
+
+    .loop-row input { height: 36px; text-align: center; font-weight: 760; }
+
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 0.7fr 0.7fr;
+      gap: 8px;
+      margin: 4px 0 10px;
+    }
+
+    .btn-row button {
+      min-height: 40px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    #run {
+      background: linear-gradient(135deg, #71e7c4, #78a8ff);
+      color: #061019;
+      box-shadow: 0 12px 32px rgba(118, 169, 255, 0.2);
+    }
+
+    #run:hover { box-shadow: 0 16px 38px rgba(115, 226, 194, 0.22); }
+    #run:disabled { background: rgba(255, 255, 255, 0.075); color: #5f697b; cursor: not-allowed; box-shadow: none; }
+    #stop-btn { background: rgba(255, 93, 108, 0.14); color: #ffb4bc; border: 1px solid rgba(255, 93, 108, 0.34); }
+    #stop-btn:hover { background: rgba(255, 93, 108, 0.22); }
+    #stop-btn.hidden { display: none; }
+    #clear-btn { background: rgba(255, 255, 255, 0.06); color: var(--muted); border: 1px solid var(--line); }
+    #clear-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.095); }
+
+    #status-bar {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 34px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.045);
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    #status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #596276;
+      flex: 0 0 auto;
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.045);
+    }
+
+    #status-dot.running { background: var(--brand-2); animation: pulse 1.1s ease-in-out infinite; }
+    #status-dot.done { background: var(--success); box-shadow: 0 0 0 4px rgba(73, 215, 140, 0.13); }
+    #status-dot.error { background: var(--danger); box-shadow: 0 0 0 4px rgba(255, 93, 108, 0.13); }
+    #status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .result-grid { display: grid; gap: 8px; }
+
+    .result-box, .loop-box, .conv-section {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    }
+
+    .result-box { overflow: hidden; }
+    .result-box .header, .conv-header, .loop-box .loop-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 36px;
+      margin: 0;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .label, .loop-header, .conv-header span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 830;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+    }
+
+    .copy, .conv-header button, .load-btn {
+      background: transparent;
+      color: var(--brand);
+      font-size: 11px;
+      font-weight: 760;
+    }
+
+    .copy:hover, .load-btn:hover { color: #b5ffe9; }
+    .conv-header button:hover { color: #ffb4bc; }
+
+    .content {
+      max-height: 150px;
+      overflow-y: auto;
+      padding: 11px;
+      color: #e8edf7;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .placeholder { color: var(--dim); font-style: italic; }
+
+    #loop-results { display: grid; gap: 8px; margin-top: 8px; }
+    .loop-box { overflow: hidden; animation: rise-in 260ms ease both; }
+    .loop-box .sub { padding: 9px 10px 0; color: var(--brand); font-size: 11px; font-weight: 790; }
+    .loop-box .sub-content {
+      max-height: 86px;
+      overflow-y: auto;
+      padding: 5px 10px 10px;
+      color: #cbd3e3;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .conv-section { margin-top: 10px; overflow: hidden; }
+    #conv-list { display: grid; gap: 5px; padding: 8px; }
+    .conv-item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 7px;
+      min-height: 32px;
+      padding: 5px 7px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.035);
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+    .conv-item:hover { border-color: var(--line); background: rgba(255, 255, 255, 0.07); transform: translateY(-1px); }
+    .type { padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: 850; }
+    .type.ds { background: rgba(118, 169, 255, 0.16); color: #9ac1ff; }
+    .type.gpt { background: rgba(73, 215, 140, 0.16); color: #82e9af; }
+    .url-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); cursor: pointer; }
+    .url-text:hover { color: var(--text); }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 4px rgba(118, 169, 255, 0.1); }
+      50% { transform: scale(0.82); box-shadow: 0 0 0 8px rgba(118, 169, 255, 0.03); }
+    }
+
+    @keyframes rise-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="content-wrap">
+      <div class="header">
+        <div class="brand">
+          <div class="brand-mark">AI</div>
+          <div>
+            <h1>AI Pipeline</h1>
+            <p>DeepSeek to ChatGPT feedback loop</p>
+          </div>
+        </div>
+        <div class="header-actions" style="display:flex;gap:6px">
+          <button id="open-dashboard" class="ghost-btn" title="Open dashboard">Dashboard</button>
+          <button id="open-multi" class="ghost-btn" title="Multi-agent orchestrator">Multi</button>
+        </div>
+      </div>
+
+      <section class="form-grid" aria-label="Pipeline controls">
+        <div class="field">
+          <label for="input">Prompt <span class="hint">DeepSeek input</span></label>
+          <textarea id="input" placeholder="Write a haiku about spring"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="task">Instruction <span class="hint">Optional ChatGPT task</span></label>
+          <textarea id="task" placeholder="Make it more poetic">Execute the task below. Do not ask questions or offer options — just produce the output directly:</textarea>
+        </div>
+
+        <div class="url-row">
+          <span class="tag">DS URL</span>
+          <input id="ds-url" placeholder="Auto-detected or paste DeepSeek chat URL" />
+          <button id="use-ds-url" class="use-btn">Use</button>
+        </div>
+
+        <div class="url-row">
+          <span class="tag">GPT URL</span>
+          <input id="gpt-url" placeholder="Auto-detected or paste ChatGPT chat URL" />
+          <button id="use-gpt-url" class="use-btn">Use</button>
+        </div>
+
+        <div class="loop-row">
+          <label for="loop-count">Feedback loops <span class="hint">critique then improve</span></label>
+          <input id="loop-count" type="number" min="0" max="10" value="3" />
+        </div>
+
+        <div class="btn-row">
+          <button id="run">Run Pipeline</button>
+          <button id="stop-btn" class="hidden">Stop</button>
+          <button id="clear-btn">Clear</button>
+        </div>
+      </section>
+
+      <div id="status-bar" role="status" aria-live="polite">
+        <span id="status-dot"></span>
+        <span id="status-text">Ready</span>
+      </div>
+
+      <section class="result-grid" aria-label="Pipeline results">
+        <div class="result-box">
+          <div class="header">
+            <span class="label">DeepSeek</span>
+          </div>
+          <div class="content" id="ds-result"><span class="placeholder">Waiting...</span></div>
+        </div>
+
+        <div class="result-box">
+          <div class="header">
+            <span class="label">ChatGPT</span>
+            <button class="copy" id="copy-btn" style="display:none">Copy</button>
+          </div>
+          <div class="content" id="gpt-result"><span class="placeholder">Waiting...</span></div>
+        </div>
+      </section>
+
+      <div id="loop-results"></div>
+
+      <section class="conv-section">
+        <div class="conv-header">
+          <span>Saved Conversations</span>
+          <button id="clear-conv">Clear</button>
+        </div>
+        <div id="conv-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
