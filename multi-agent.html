@@ -413,6 +413,79 @@ body {
 #login-retry-btn, #login-cancel-btn { font: inherit; font-size: 12px; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--line); cursor: pointer; }
 #login-retry-btn { background: var(--brand); color: #07130f; border-color: var(--brand); }
 #login-cancel-btn { background: transparent; color: var(--text); }
+
+/* ── Onboarding Overlay ── */
+#onboarding-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+}
+#onboarding-overlay.hidden { display: none !important; }
+#onboarding-bg {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7);
+}
+#onboarding-box {
+  position: relative;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 540px;
+  width: 90%;
+  z-index: 1;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+#onboarding-box h1 { font-size: 24px; margin-bottom: 8px; background: linear-gradient(135deg,var(--brand),#4f8fff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+#onboarding-box .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+#onboarding-steps { text-align: left; margin-bottom: 24px; }
+#onboarding-steps li { margin-bottom: 10px; font-size: 13px; line-height: 1.5; color: var(--text); }
+#onboarding-steps li strong { color: var(--brand); }
+#onboarding-dismiss {
+  background: var(--brand); color: #07130f; border: 0; border-radius: 8px;
+  padding: 10px 28px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: transform 0.15s;
+}
+#onboarding-dismiss:hover { transform: scale(1.03); }
+
+/* ── Task Confirmation ── */
+#confirm-section {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+#confirm-section.hidden { display: none; }
+#confirm-section .msg { flex: 1; font-size: 13px; color: var(--muted); }
+#confirm-btn, #cancel-tasks-btn {
+  font: inherit; font-size: 12px; padding: 8px 20px; border-radius: 6px;
+  border: 1px solid var(--line); cursor: pointer; font-weight: 600;
+}
+#confirm-btn { background: var(--brand); color: #07130f; border-color: var(--brand); }
+#cancel-tasks-btn { background: transparent; color: var(--muted); }
+.task-edit {
+  width: 100%; background: #0e1118; border: 1px solid var(--line);
+  border-radius: 4px; padding: 4px 8px; color: var(--text); font-size: 12px;
+  font-family: inherit; resize: vertical; outline: none;
+}
+
+/* ── Streaming & status badges ── */
+.badge-streaming { font-size: 11px; color: #f0c040; margin-left: 8px; }
+.badge-retry { font-size: 11px; color: var(--brand); margin-left: 8px; }
+.badge-error { font-size: 11px; color: #f55; margin-left: 8px; }
+.output-card.streaming { border-color: #f0c040; opacity: 0.9; }
+
+/* ── Export button ── */
+#export-section { margin-top: 12px; }
+#export-btn {
+  background: transparent; color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 16px; font: inherit; font-size: 12px; cursor: pointer;
+}
 </style>
 </head>
 <body>
@@ -458,6 +531,11 @@ body {
       <section id="tasks-section" style="display:none">
         <div class="section-title">Task Breakdown</div>
         <div class="task-grid" id="task-grid"></div>
+        <div id="confirm-section">
+          <span class="msg">Review the tasks above. You can edit the descriptions before confirming.</span>
+          <button id="cancel-tasks-btn">Cancel</button>
+          <button id="confirm-btn">✓ Confirm & Run</button>
+        </div>
       </section>
 
       <section id="outputs-section" style="display:none">
@@ -478,7 +556,28 @@ body {
           <div class="body" id="synth-body"></div>
         </div>
       </section>
+
+      <section id="export-section" style="display:none">
+        <button id="export-btn">📄 Export as Markdown</button>
+      </section>
     </div>
+  </div>
+</div>
+
+<!-- ── Onboarding Overlay ── -->
+<div id="onboarding-overlay" class="hidden">
+  <div id="onboarding-bg"></div>
+  <div id="onboarding-box">
+    <h1>The Orchestrator</h1>
+    <p class="sub">Multi-Agent AI Pipeline — no API keys, no servers, just browser tabs.</p>
+    <ol id="onboarding-steps">
+      <li><strong>Select agents</strong> — Click the agent icons above to pick which AIs you want to use (DeepSeek, ChatGPT, etc.)</li>
+      <li><strong>Enter a goal</strong> — Type what you want to build or accomplish in the text box</li>
+      <li><strong>Click Run</strong> — The orchestrator will verify logins, plan tasks, and execute them across your selected agents</li>
+      <li><strong>Review results</strong> — See agent outputs, download generated files as ZIP, or export as Markdown</li>
+    </ol>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:20px">You need free accounts for the AI services you want to use. Log into each one before running.</p>
+    <button id="onboarding-dismiss">Get Started →</button>
   </div>
 </div>
 

@@ -275,5 +275,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.action === 'getChatAgentConvs') {
     getChat(msg.chatId).then(chat => sendResponse(chat?.agentConvs || {}));
     return true;
+  } else if (msg.action === 'confirmTasks') {
+    setMultiState({ tasksConfirmed: true }).then(() => sendResponse({ ok: true }));
+    return true;
+  } else if (msg.action === 'rejectTasks') {
+    setMultiState({ tasksConfirmed: false }).then(() => sendResponse({ ok: true }));
+    return true;
   }
 });

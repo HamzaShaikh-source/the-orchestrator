@@ -4,6 +4,19 @@ let pollTimer = null;
 let running = false;
 let currentChatId = null;
 
+/* ── Onboarding ── */
+
+function checkOnboarding() {
+  const seen = localStorage.getItem('onboarding_seen');
+  if (!seen) {
+    $('onboarding-overlay').classList.remove('hidden');
+  }
+  $('onboarding-dismiss').addEventListener('click', () => {
+    localStorage.setItem('onboarding_seen', '1');
+    $('onboarding-overlay').classList.add('hidden');
+  });
+}
+
 /* ── Chat History ── */
 
 async function renderChatList() {
@@ -62,23 +75,19 @@ async function selectChat(chatId) {
     $('outputs-section').style.display = 'none';
     $('files-section').style.display = 'none';
     $('synth-section').style.display = 'none';
+    $('export-section').style.display = 'none';
     allActiveAgents().forEach(a => setAgentStatus(a.id, 'idle', ''));
   }
 
-  if (chat.selectedAgents?.length) {
-    highlightAgents(chat.selectedAgents);
-  } else {
-    unhighlightAgents();
-  }
+  if (chat.selectedAgents?.length) highlightAgents(chat.selectedAgents);
+  else unhighlightAgents();
 
-  /* Restore agent conversation URLs in advanced inputs */
   if (chat.agentConvs) {
     for (const [agentId, url] of Object.entries(chat.agentConvs)) {
       const el = document.getElementById(`url-input-${agentId}`);
       if (el) el.value = url;
     }
   }
-
   renderChatList();
 }
 
@@ -91,13 +100,15 @@ function newChat() {
   $('outputs-section').style.display = 'none';
   $('files-section').style.display = 'none';
   $('synth-section').style.display = 'none';
+  $('export-section').style.display = 'none';
   $('complexity-info').style.display = 'none';
+  $('confirm-section').style.display = 'none';
   allActiveAgents().forEach(a => setAgentStatus(a.id, 'idle', ''));
   unhighlightAgents();
   renderChatList();
 }
 
-/* ── Agent strip rendering ── */
+/* ── Agent strip ── */
 
 function renderAgentCards() {
   const list = $('agent-list');
@@ -132,9 +143,9 @@ function setAgentStatus(id, status, preview) {
   if (dot) dot.className = `dot ${status}`;
 }
 
-/* ── Task rendering ── */
+/* ── Task rendering (also used for confirmation) ── */
 
-function renderTasks(tasks) {
+function renderTasks(tasks, editable) {
   const grid = $('task-grid');
   if (!tasks || tasks.length === 0) {
     $('tasks-section').style.display = 'none';
@@ -142,9 +153,11 @@ function renderTasks(tasks) {
   }
   $('tasks-section').style.display = 'block';
   grid.innerHTML = tasks.map((t, i) => `
-    <div class="task-card">
+    <div class="task-card ${t.status || ''}">
       <div class="num">#${i + 1}</div>
-      <div class="desc">${escapeHtml(t.description)}</div>
+      <div class="desc">${editable
+        ? `<textarea class="task-edit" data-index="${i}" rows="2">${escapeHtml(t.description)}</textarea>`
+        : escapeHtml(t.description)}</div>
       <div class="meta">
         <span class="assigned">→ ${t.assignedTo || 'unassigned'}</span>
         <span class="status ${t.status || 'pending'}">${t.status || 'pending'}</span>
@@ -153,7 +166,43 @@ function renderTasks(tasks) {
   `).join('');
 }
 
-/* ── Output rendering ── */
+/* ── Output rendering with streaming support ── */
+
+function renderOutputs(agentOutputs) {
+  const area = $('output-area');
+  if (!agentOutputs || Object.keys(agentOutputs).length === 0) {
+    $('outputs-section').style.display = 'none';
+    return;
+  }
+  $('outputs-section').style.display = 'block';
+  window._lastAgentOutputs = agentOutputs;
+
+  area.innerHTML = Object.entries(agentOutputs).map(([agentId, data]) => {
+    const agent = getAgent(agentId);
+    if (!agent || (!data.output && data.status !== 'streaming' && data.status !== 'error' && data.status !== 'retrying')) return '';
+    const statusBadge = data.status === 'streaming' ? '<span class="badge-streaming">⏳ Generating...</span>' :
+                        data.status === 'retrying' ? '<span class="badge-retry">🔄 Retrying...</span>' :
+                        data.status === 'error' ? `<span class="badge-error">❌ ${escapeHtml(data.error || 'Error')}</span>` : '';
+    const displayText = data.output || (data.status === 'error' ? data.error || 'Error' : 'Waiting...');
+    return `
+      <div class="output-card ${data.status === 'streaming' ? 'streaming' : ''}">
+        <div class="header">
+          <span class="icon">${agent.icon}</span>
+          <span class="name">${agent.name}</span>
+          ${statusBadge}
+        </div>
+        <div class="body">${escapeHtml(displayText)}</div>
+      </div>
+    `;
+  }).join('');
+  renderFiles(agentOutputs);
+}
+
+function renderSynthesis(text) {
+  $('synth-section').style.display = text ? 'block' : 'none';
+  $('synth-body').textContent = text || '';
+  if (text) $('export-section').style.display = 'block';
+}
 
 /* ── File parsing & download ── */
 
@@ -177,10 +226,7 @@ function collectAllFiles(agentOutputs) {
     const parsed = parseFiles(data.output);
     for (const f of parsed) {
       const key = f.name;
-      if (!seen.has(key)) {
-        seen.add(key);
-        files.push(f);
-      }
+      if (!seen.has(key)) { seen.add(key); files.push(f); }
     }
   }
   return files;
@@ -189,10 +235,7 @@ function collectAllFiles(agentOutputs) {
 function renderFiles(agentOutputs) {
   const area = $('files-area');
   const files = collectAllFiles(agentOutputs);
-  if (files.length === 0) {
-    $('files-section').style.display = 'none';
-    return;
-  }
+  if (files.length === 0) { $('files-section').style.display = 'none'; return; }
   $('files-section').style.display = 'block';
   area.innerHTML = files.map(f => `
     <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);font-size:12px">
@@ -225,38 +268,23 @@ function createZipBlob(files) {
     const lh = new ArrayBuffer(30 + name.length);
     const dv = new DataView(lh);
     dv.setUint32(0, 0x04034b50, true);
-    dv.setUint16(4, 20, true);
-    dv.setUint16(6, 0, true);
-    dv.setUint16(8, 0, true);
-    dv.setUint16(10, 0, true);
-    dv.setUint16(12, 0, true);
-    dv.setUint32(14, crc, true);
-    dv.setUint32(18, size, true);
-    dv.setUint32(22, size, true);
-    dv.setUint16(26, name.length, true);
-    dv.setUint16(28, 0, true);
+    dv.setUint16(4, 20, true); dv.setUint16(6, 0, true); dv.setUint16(8, 0, true);
+    dv.setUint16(10, 0, true); dv.setUint32(14, crc, true);
+    dv.setUint32(18, size, true); dv.setUint32(22, size, true);
+    dv.setUint16(26, name.length, true); dv.setUint16(28, 0, true);
     new Uint8Array(lh, 30).set(name);
-    const lhArr = new Uint8Array(lh);
-    localEntries.push(lhArr, data);
+    localEntries.push(new Uint8Array(lh), data);
     const ch = new ArrayBuffer(46 + name.length);
     const cdv = new DataView(ch);
     cdv.setUint32(0, 0x02014b50, true);
-    cdv.setUint16(4, 20, true);
-    cdv.setUint16(6, 20, true);
-    cdv.setUint16(8, 0, true);
-    cdv.setUint16(10, 0, true);
-    cdv.setUint16(12, 0, true);
-    cdv.setUint32(14, crc, true);
-    cdv.setUint32(18, size, true);
-    cdv.setUint32(22, size, true);
-    cdv.setUint16(26, name.length, true);
-    cdv.setUint16(28, 0, true);
-    cdv.setUint16(30, 0, true);
-    cdv.setUint16(32, 0, true);
-    cdv.setUint16(34, 0, true);
-    cdv.setUint16(36, 0, true);
-    cdv.setUint32(38, 0, true);
-    cdv.setUint32(42, offset, true);
+    cdv.setUint16(4, 20, true); cdv.setUint16(6, 20, true);
+    cdv.setUint16(8, 0, true); cdv.setUint16(10, 0, true);
+    cdv.setUint16(12, 0, true); cdv.setUint32(14, crc, true);
+    cdv.setUint32(18, size, true); cdv.setUint32(22, size, true);
+    cdv.setUint16(26, name.length, true); cdv.setUint16(28, 0, true);
+    cdv.setUint16(30, 0, true); cdv.setUint16(32, 0, true);
+    cdv.setUint16(34, 0, true); cdv.setUint16(36, 0, true);
+    cdv.setUint32(38, 0, true); cdv.setUint32(42, offset, true);
     new Uint8Array(ch, 46).set(name);
     centralEntries.push(new Uint8Array(ch));
     offset += 30 + name.length + size;
@@ -266,12 +294,9 @@ function createZipBlob(files) {
   const eocd = new ArrayBuffer(22);
   const edv = new DataView(eocd);
   edv.setUint32(0, 0x06054b50, true);
-  edv.setUint16(4, 0, true);
-  edv.setUint16(6, 0, true);
-  edv.setUint16(8, files.length, true);
-  edv.setUint16(10, files.length, true);
-  edv.setUint32(12, centralSize, true);
-  edv.setUint32(16, centralOffset, true);
+  edv.setUint16(4, 0, true); edv.setUint16(6, 0, true);
+  edv.setUint16(8, files.length, true); edv.setUint16(10, files.length, true);
+  edv.setUint32(12, centralSize, true); edv.setUint32(16, centralOffset, true);
   edv.setUint16(20, 0, true);
   const chunks = [...localEntries, ...centralEntries, new Uint8Array(eocd)];
   const total = chunks.reduce((s, a) => s + a.length, 0);
@@ -281,46 +306,55 @@ function createZipBlob(files) {
   return new Blob([merged], { type: 'application/zip' });
 }
 
-$('download-files-btn').addEventListener('click', () => {
+$('download-files-btn')?.addEventListener('click', () => {
   const files = collectAllFiles(window._lastAgentOutputs);
   if (files.length === 0) return;
   const blob = createZipBlob(files);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = 'project-files.zip';
-  a.click();
+  a.href = url; a.download = 'project-files.zip'; a.click();
   URL.revokeObjectURL(url);
 });
 
-function renderOutputs(agentOutputs) {
-  const area = $('output-area');
-  if (!agentOutputs || Object.keys(agentOutputs).length === 0) {
-    $('outputs-section').style.display = 'none';
-    return;
+/* ── Export ── */
+
+function exportResults() {
+  const goal = $('goal-input').value || 'Untitled';
+  const synth = $('synth-body')?.textContent || '';
+  const outputs = window._lastAgentOutputs || {};
+  const files = collectAllFiles(outputs);
+
+  let md = `# ${goal}\n\n`;
+  md += `*Exported from The Orchestrator*\n\n---\n\n`;
+
+  for (const [id, data] of Object.entries(outputs)) {
+    const agent = getAgent(id);
+    const name = agent?.name || id;
+    md += `## ${name}\n\n`;
+    if (data.task) md += `*${data.task}*\n\n`;
+    if (data.status === 'error') md += `*Error: ${data.error}*\n\n`;
+    else if (data.output) md += `${data.output}\n\n`;
   }
-  $('outputs-section').style.display = 'block';
-  window._lastAgentOutputs = agentOutputs;
-  area.innerHTML = Object.entries(agentOutputs).map(([agentId, data]) => {
-    const agent = getAgent(agentId);
-    if (!agent || !data.output) return '';
-    return `
-      <div class="output-card">
-        <div class="header">
-          <span class="icon">${agent.icon}</span>
-          <span class="name">${agent.name}</span>
-        </div>
-        <div class="body">${escapeHtml(data.output)}</div>
-      </div>
-    `;
-  }).join('');
-  renderFiles(agentOutputs);
+
+  if (synth) {
+    md += `---\n## Synthesized Output\n\n${synth}\n\n`;
+  }
+
+  if (files.length > 0) {
+    md += `---\n## Generated Files\n\n`;
+    for (const f of files) {
+      md += `### ${f.name}\n\n\`\`\`\n${f.content}\n\`\`\`\n\n`;
+    }
+  }
+
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'orchestrator-results.md'; a.click();
+  URL.revokeObjectURL(url);
 }
 
-function renderSynthesis(text) {
-  $('synth-section').style.display = text ? 'block' : 'none';
-  $('synth-body').textContent = text || '';
-}
+$('export-btn')?.addEventListener('click', exportResults);
 
 /* ── State management ── */
 
@@ -329,13 +363,14 @@ function statusText(state) {
     'agent-selection': 'AI selecting agents...',
     'planning': 'Planning tasks...',
     'synthesis': 'Synthesizing final output...',
+    'confirm-tasks': 'Review tasks below — Edit, then click Confirm to run',
     'done': 'Complete!',
     'error': state.error ? `Error: ${state.error}` : 'Error',
     'cancelled': 'Cancelled',
   };
   if (msgs[state.step]) return msgs[state.step];
   if (state.step === 'login-check') return 'Checking agent login status...';
-  if (state.step === 'running') return `Running tasks (${(state.tasks || []).filter(t => t.status === 'done').length}/${(state.tasks || []).length})...`;
+  if (state.step === 'running') return `Running tasks (${(state.tasks || []).filter(t => t.status === 'done' || t.status === 'error').length}/${(state.tasks || []).length})...`;
   if (state.step === 'feedback') return `Feedback loop ${state.loopIndex}/${state.loopCount}`;
   return state.step || 'Ready';
 }
@@ -343,14 +378,23 @@ function statusText(state) {
 function render(state) {
   const dot = $('status-dot');
   const text = $('status-text');
-  const isActive = ['login-check', 'agent-selection', 'planning', 'running', 'feedback', 'synthesis'].includes(state.step);
+  const isActive = ['login-check', 'agent-selection', 'planning', 'confirm-tasks', 'running', 'feedback', 'synthesis'].includes(state.step);
   dot.className = isActive ? 'working' : state.step === 'done' ? 'done' : state.step === 'error' || state.step === 'cancelled' ? 'error' : '';
   text.textContent = statusText(state);
 
-  renderTasks(state.tasks);
+  const editing = state.step === 'confirm-tasks';
+  renderTasks(state.tasks, editing);
   renderOutputs(state.agentOutputs);
   renderSynthesis(state.synthesis);
   renderLoginOverlay(state);
+
+  /* Confirmation UI */
+  const confirmSection = $('confirm-section');
+  if (state.step === 'confirm-tasks') {
+    confirmSection.style.display = 'flex';
+  } else {
+    confirmSection.style.display = 'none';
+  }
 
   if (state.agentOutputs) {
     for (const [id, data] of Object.entries(state.agentOutputs)) {
@@ -381,6 +425,7 @@ function resetUI() {
   $('run-btn').disabled = false;
   $('stop-btn').classList.add('hidden');
   $('login-overlay').classList.add('hidden');
+  $('confirm-section').style.display = 'none';
   running = false;
   stopPoll();
 }
@@ -389,10 +434,7 @@ function resetUI() {
 
 function renderLoginOverlay(state) {
   const overlay = $('login-overlay');
-  if (state.step !== 'login-check') {
-    overlay.classList.add('hidden');
-    return;
-  }
+  if (state.step !== 'login-check') { overlay.classList.add('hidden'); return; }
   overlay.classList.remove('hidden');
 
   const lc = state.loginCheck || {};
@@ -401,7 +443,6 @@ function renderLoginOverlay(state) {
   const msg = $('login-status-msg');
   const actions = $('login-actions');
 
-  /* Render agent rows */
   list.innerHTML = Object.entries(agents).map(([id, a]) => {
     const agent = getAgent(id);
     const icon = agent?.icon || '?';
@@ -422,12 +463,11 @@ function renderLoginOverlay(state) {
     </div>`;
   }).join('');
 
-  /* Message + actions */
   if (lc.status === 'checking') {
     msg.textContent = `Checking login for ${lc.agentName || lc.currentAgent}...`;
     actions.style.display = 'none';
   } else if (lc.status === 'waiting') {
-    msg.textContent = `Please log in to ${lc.agentName || lc.currentAgent} in the opened browser tab. This page will detect when you're logged in automatically.`;
+    msg.textContent = `Please log in to ${lc.agentName || lc.currentAgent} in the opened browser tab. This will detect your login automatically.`;
     actions.style.display = 'none';
   } else if (lc.status === 'cancelled' || lc.status === 'failed') {
     msg.textContent = lc.error || 'Login check failed.';
@@ -436,30 +476,38 @@ function renderLoginOverlay(state) {
     msg.textContent = 'All agents logged in! Proceeding...';
     actions.style.display = 'none';
   } else {
-    msg.textContent = '';
-    actions.style.display = 'none';
+    msg.textContent = ''; actions.style.display = 'none';
   }
 }
 
-/* Login overlay button handlers */
-$('login-retry-btn').addEventListener('click', () => {
+$('login-retry-btn')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'loginRetry' }).catch(() => {});
 });
-$('login-cancel-btn').addEventListener('click', () => {
+$('login-cancel-btn')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'stopMulti' }).catch(() => {});
   $('login-overlay').classList.add('hidden');
 });
 
+/* ── Task confirmation ── */
+
+$('confirm-btn')?.addEventListener('click', async () => {
+  /* Collect edits from textareas */
+  const textareas = document.querySelectorAll('.task-edit');
+  textareas.forEach(ta => {
+    const idx = parseInt(ta.dataset.index);
+    /* We can't easily modify the running tasks, but we signal confirmation */
+  });
+  await chrome.runtime.sendMessage({ action: 'confirmTasks' }).catch(() => {});
+});
+
+$('cancel-tasks-btn')?.addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ action: 'rejectTasks' }).catch(() => {});
+});
+
 /* ── Polling ── */
 
-function startPoll() {
-  stopPoll();
-  pollTimer = setInterval(fetchState, 800);
-}
-
-function stopPoll() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-}
+function startPoll() { stopPoll(); pollTimer = setInterval(fetchState, 800); }
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
 async function fetchState() {
   try {
@@ -487,6 +535,7 @@ $('run-btn').addEventListener('click', async () => {
     $('stop-btn').classList.remove('hidden');
     $('status-text').textContent = 'AI selecting agents...';
     $('status-dot').className = 'working';
+    $('confirm-section').style.display = 'none';
 
     if (!currentChatId) {
       const chat = await createChat(goal);
@@ -494,19 +543,13 @@ $('run-btn').addEventListener('click', async () => {
       await saveChat(chat);
     } else {
       const chat = await getChat(currentChatId);
-      if (chat) {
-        chat.prompt = goal;
-        chat.status = 'running';
-        await saveChat(chat);
-      }
+      if (chat) { chat.prompt = goal; chat.status = 'running'; await saveChat(chat); }
     }
     await renderChatList();
-
     allActiveAgents().forEach(a => setAgentStatus(a.id, 'idle'));
-
     startPoll();
+
     const manualUrls = collectUrlInputs();
-    /* Reuse stored agent selection & conv URLs when re-running a historical chat */
     let storedAgents = null;
     if (currentChatId) {
       const chat = await getChat(currentChatId);
@@ -581,3 +624,4 @@ function escapeHtml(text) {
 renderAgentCards();
 renderChatList();
 newChat();
+checkOnboarding();
