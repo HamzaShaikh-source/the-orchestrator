@@ -486,9 +486,62 @@ body {
   background: transparent; color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 8px 16px; font: inherit; font-size: 12px; cursor: pointer;
 }
+
+/* ── Loading / Init State ── */
+#loading-init {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); z-index: 2000;
+  font-size: 14px; color: var(--muted);
+}
+#loading-init.hidden { display: none !important; }
+#app-content.hidden { display: none !important; }
+
+/* ── Loading bar ── */
+#loading-bar { height: 3px; background: var(--surface-3); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+#loading-bar.hidden { display: none; }
+#loading-bar::after {
+  content: ''; display: block; height: 100%; width: 30%;
+  background: linear-gradient(90deg, var(--brand), #4f8fff);
+  border-radius: 2px; animation: loading-slide 1.5s ease-in-out infinite;
+}
+@keyframes loading-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(430%); }
+}
+
+/* ── Error retry section ── */
+#error-retry-section { margin-top: 12px; padding: 12px 16px; background: rgba(255,85,85,0.08); border: 1px solid rgba(255,85,85,0.2); border-radius: 8px; }
+#error-retry-section.hidden { display: none !important; }
+#error-msg { font-size: 13px; color: #f55; margin-bottom: 8px; line-height: 1.5; }
+#error-retry-btn { background: var(--brand); color: #07130f; border: 0; border-radius: 6px; padding: 8px 20px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+
+/* ── Agent strip card selection & tooltips ── */
+.agent-strip-card { cursor: pointer; transition: border-color 0.2s, background 0.2s; position: relative; }
+.agent-strip-card:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.agent-strip-card.selected { border-color: var(--brand); background: rgba(66,198,163,0.08); }
+.agent-strip-card .name { flex: 1; }
+
+/* ── Goal suggestion chips ── */
+#suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+#suggestions.hidden { display: none; }
+.suggestion-chip {
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: 20px;
+  padding: 4px 14px; font: inherit; font-size: 11px; color: var(--muted); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;
+  transition: border-color 0.2s, color 0.2s;
+}
+.suggestion-chip:hover { border-color: var(--brand); color: var(--text); }
+
+/* ── Chat item title tooltip ── */
+.chat-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item { position: relative; }
+.chat-item:hover .chat-item-title { overflow: visible; white-space: normal; word-break: break-word; background: var(--surface); z-index: 1; }
 </style>
 </head>
 <body>
+<div id="loading-init">Loading...</div>
+<div id="app-content" class="hidden">
 <div class="layout">
   <aside class="sidebar">
     <div class="sidebar-header">
@@ -514,9 +567,15 @@ body {
         <span id="status-dot"></span>
         <span id="status-text">Ready</span>
       </div>
+      <div id="loading-bar" class="hidden"></div>
       <div id="complexity-info">
         <span id="complexity-text"></span>
       </div>
+      <div id="error-retry-section" class="hidden">
+        <div id="error-msg"></div>
+        <button id="error-retry-btn">⟳ Retry</button>
+      </div>
+      <div id="suggestions" style="margin-top:6px"></div>
       <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
         <button id="toggle-urls-btn" style="background:none;border:0;color:var(--dim);font-size:13px;cursor:pointer;padding:2px 6px;border-radius:4px" title="Advanced: agent conversation URLs">⚙</button>
         <span style="font-size:10px;color:var(--dim)">Advanced</span>
@@ -563,6 +622,7 @@ body {
     </div>
   </div>
 </div>
+</div> <!-- end app-content -->
 
 <!-- ── Onboarding Overlay ── -->
 <div id="onboarding-overlay" class="hidden">

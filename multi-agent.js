@@ -3,6 +3,31 @@ const $ = (id) => document.getElementById(id);
 let pollTimer = null;
 let running = false;
 let currentChatId = null;
+let selectedAgents = []; /* Track which agents user has toggled on multi-agent page */
+
+/* ── Goal suggestions ── */
+
+const GOAL_SUGGESTIONS = [
+  'Create a landing page with CSS animations and a contact form',
+  'Write a blog post about the future of AI in healthcare',
+  'Build a JavaScript calculator with dark theme',
+  'Compare TypeScript vs Python for backend development',
+  'Design a dashboard UI for tracking personal expenses',
+];
+
+function renderSuggestions() {
+  const el = $('suggestions');
+  if (!el) return;
+  el.innerHTML = GOAL_SUGGESTIONS.map(s => `
+    <button class="suggestion-chip" data-goal="${escapeHtml(s)}">${escapeHtml(s)}</button>
+  `).join('');
+  el.querySelectorAll('.suggestion-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $('goal-input').value = btn.dataset.goal;
+      $('suggestions').style.display = 'none';
+    });
+  });
+}
 
 /* ── Onboarding ── */
 
@@ -93,6 +118,7 @@ async function selectChat(chatId) {
 
 function newChat() {
   currentChatId = null;
+  selectedAgents = [];
   $('goal-input').value = '';
   $('status-text').textContent = 'Ready';
   $('status-dot').className = '';
@@ -103,8 +129,11 @@ function newChat() {
   $('export-section').style.display = 'none';
   $('complexity-info').style.display = 'none';
   $('confirm-section').style.display = 'none';
+  $('error-retry-section').classList.add('hidden');
+  $('loading-bar').classList.add('hidden');
   allActiveAgents().forEach(a => setAgentStatus(a.id, 'idle', ''));
   unhighlightAgents();
+  renderAgentCards();
   renderChatList();
 }
 
@@ -113,12 +142,24 @@ function newChat() {
 function renderAgentCards() {
   const list = $('agent-list');
   list.innerHTML = allActiveAgents().map(a => `
-    <div class="agent-strip-card" data-agent="${a.id}">
+    <div class="agent-strip-card ${selectedAgents.includes(a.id) ? 'selected' : ''}" data-agent="${a.id}" title="Click to toggle ${a.name}">
       <span class="icon">${a.icon}</span>
       <span class="name">${a.name}</span>
       <span class="dot idle" id="dot-${a.id}"></span>
     </div>
   `).join('');
+
+  /* Click to toggle agent selection */
+  list.querySelectorAll('.agent-strip-card').forEach(card => {
+    card.addEventListener('click', () => {
+      if (running) return;
+      const id = card.dataset.agent;
+      const idx = selectedAgents.indexOf(id);
+      if (idx >= 0) selectedAgents.splice(idx, 1);
+      else selectedAgents.push(id);
+      renderAgentCards();
+    });
+  });
 }
 
 function highlightAgents(selectedIds) {
@@ -418,6 +459,11 @@ function render(state) {
   if (state.step === 'done' || state.step === 'error' || state.step === 'cancelled') {
     resetUI();
     if (currentChatId) renderChatList();
+    /* Show error retry on failure */
+    if (state.step === 'error') {
+      $('error-msg').textContent = state.error || 'An unknown error occurred.';
+      $('error-retry-section').classList.remove('hidden');
+    }
   }
 }
 
@@ -426,9 +472,16 @@ function resetUI() {
   $('stop-btn').classList.add('hidden');
   $('login-overlay').classList.add('hidden');
   $('confirm-section').style.display = 'none';
+  $('loading-bar').classList.add('hidden');
   running = false;
   stopPoll();
 }
+
+/* Error retry */
+$('error-retry-btn')?.addEventListener('click', () => {
+  $('error-retry-section').classList.add('hidden');
+  $('run-btn').click();
+});
 
 /* ── Login Check UI ── */
 
@@ -533,9 +586,12 @@ $('run-btn').addEventListener('click', async () => {
     running = true;
     $('run-btn').disabled = true;
     $('stop-btn').classList.remove('hidden');
-    $('status-text').textContent = 'AI selecting agents...';
+    $('error-retry-section').classList.add('hidden');
+    $('suggestions').style.display = 'none';
+    $('status-text').textContent = 'Starting...';
     $('status-dot').className = 'working';
     $('confirm-section').style.display = 'none';
+    $('loading-bar').classList.remove('hidden');
 
     if (!currentChatId) {
       const chat = await createChat(goal);
@@ -550,6 +606,8 @@ $('run-btn').addEventListener('click', async () => {
     startPoll();
 
     const manualUrls = collectUrlInputs();
+    /* Use agents selected from the strip, chat history, or let AI decide */
+    const agentsToUse = selectedAgents.length > 0 ? selectedAgents : null;
     let storedAgents = null;
     if (currentChatId) {
       const chat = await getChat(currentChatId);
@@ -560,11 +618,13 @@ $('run-btn').addEventListener('click', async () => {
         }
       }
     }
-    chrome.runtime.sendMessage({ action: 'runMulti', goal, selectedAgents: storedAgents, chatId: currentChatId, manualUrls });
+    const passAgents = agentsToUse || storedAgents;
+    chrome.runtime.sendMessage({ action: 'runMulti', goal, selectedAgents: passAgents, chatId: currentChatId, manualUrls });
   } catch (e) {
     console.error('Run error:', e);
     $('status-text').textContent = 'Error: ' + e.message;
     $('status-dot').className = 'error';
+    $('loading-bar').classList.add('hidden');
     resetUI();
   }
 });
@@ -621,6 +681,11 @@ function escapeHtml(text) {
 
 /* ── Init ── */
 
+/* Hide loading state once JS is ready */
+$('loading-init').classList.add('hidden');
+$('app-content').classList.remove('hidden');
+
+renderSuggestions();
 renderAgentCards();
 renderChatList();
 newChat();

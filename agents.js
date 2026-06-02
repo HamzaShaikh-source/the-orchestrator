@@ -2,7 +2,7 @@ const AGENTS = [
   {
     id: 'deepseek',
     name: 'DeepSeek',
-    url: 'https://chat.deepseek.com/a/chat/s',
+    url: 'https://chat.deepseek.com/',
     conversationPattern: null,
     capabilities: ['code', 'reasoning', 'technical', 'logic'],
     strengths: { code: 9, reasoning: 9, technical: 9, creative: 5, writing: 4, research: 3, analysis: 7 },
@@ -20,7 +20,7 @@ const AGENTS = [
   {
     id: 'chatgpt',
     name: 'ChatGPT',
-    url: 'https://chatgpt.com',
+    url: 'https://chatgpt.com/',
     conversationPattern: '/c/',
     capabilities: ['creative', 'writing', 'instruction', 'explanation'],
     strengths: { creative: 9, writing: 9, instruction: 9, code: 6, reasoning: 7, research: 5, analysis: 7 },
@@ -38,8 +38,8 @@ const AGENTS = [
   {
     id: 'gemini',
     name: 'Gemini',
-    url: 'https://gemini.google.com',
-    conversationPattern: '/c/',
+    url: 'https://gemini.google.com/',
+    conversationPattern: null,
     capabilities: ['analysis', 'structured', 'multimodal', 'reasoning'],
     strengths: { analysis: 9, structured: 8, reasoning: 8, code: 7, creative: 6, research: 6, technical: 7 },
     icon: '✨',
@@ -52,12 +52,13 @@ const AGENTS = [
     },
     actions: ['inject', 'submit', 'read'],
     active: true,
+    note: 'Submit button may not enable reliably after injection',
   },
   {
     id: 'perplexity',
     name: 'Perplexity',
-    url: 'https://www.perplexity.ai',
-    conversationPattern: '/search/',
+    url: 'https://www.perplexity.ai/',
+    conversationPattern: null,
     capabilities: ['research', 'fact-checking', 'citations', 'current-events'],
     strengths: { research: 10, analysis: 7, writing: 5, code: 4, reasoning: 6, creative: 3, technical: 5 },
     icon: '🔍',
@@ -74,7 +75,7 @@ const AGENTS = [
   {
     id: 'huggingface',
     name: 'HuggingFace',
-    url: 'https://huggingface.co/spaces',
+    url: 'https://huggingface.co/chat/',
     conversationPattern: null,
     capabilities: ['code-gen', 'translation', 'summarization', 'specialized'],
     strengths: { 'code-gen': 9, translation: 8, summarization: 8, creative: 3, writing: 3, research: 2, analysis: 5 },
