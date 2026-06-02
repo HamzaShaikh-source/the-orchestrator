@@ -1,26 +1,35 @@
 /* Task Planner
- * Breaks user goal into structured subtasks using the best analysis agent.
+ * Breaks user goal into structured subtasks using ChatGPT.
+ * Each subtask includes a clear role and collaborator context.
  */
 
 async function planTasks(goal, usedTabs = {}) {
-  console.log('[Planner] Planning tasks for:', goal.slice(0, 80));
+  console.log('[Planner] Planning tasks for:', goal.slice(0, 120));
 
   const plannerId = 'chatgpt';
   const planner = getAgent(plannerId);
   if (!planner) throw new Error('No agent available for planning');
 
-  const prompt = `You are a task planner. Break down the following goal into 3-6 specific, actionable subtasks. Each subtask must focus on a different aspect and use a DIFFERENT type from the others.
+  const agentList = allActiveAgents().map(a => `- ${a.id}: ${a.name} (strengths: ${Object.entries(a.strengths).map(([k, v]) => `${k}=${v}`).join(', ')})`).join('\n');
 
-For each subtask output:
-- "description": what to do (1-2 sentences)
+  const prompt = `You are a task planner for a multi-agent AI team. Break down the following goal into 3-6 specific subtasks.
+
+For each subtask, output a JSON object with:
+- "description": what this subtask achieves (1-2 clear sentences). Include enough context so the agent understands how it fits into the bigger picture.
 - "type": one of [code, creative, research, analysis, writing, technical, design]
 
-IMPORTANT: Vary the types across subtasks. For example: if one task is "code", make another "writing", another "design", etc. Do NOT use the same type for all subtasks.
+RULES:
+1. Use DIFFERENT types for each subtask (vary them)
+2. Each subtask should be self-contained — the agent working on it should understand the full goal
+3. The first subtask should set the foundation, later ones build on previous work
+4. Output ONLY a valid JSON array, no markdown, no explanation
 
-Output ONLY a JSON array with no markdown or explanation:
-[{"description":"...","type":"..."}]
+Available agents:
+${agentList}
 
-Goal: ${goal}`;
+Goal: ${goal}
+
+Output: [{ "description": "...", "type": "..." }]`;
 
   let tab = usedTabs[planner.id];
   if (!tab || !await tabAlive(tab.id)) {
@@ -49,7 +58,7 @@ Goal: ${goal}`;
   r = await send(tab.id, { action: 'submit' });
   if (r?.error) throw new Error(`${planner.name} submit: ${r.error}`);
 
-  const raw = await poll(tab.id, prompt, 90);
+  const raw = await poll(tab.id, prompt, 120);
 
   let tasks = [];
   try {
@@ -63,10 +72,10 @@ Goal: ${goal}`;
 
   if (!Array.isArray(tasks) || tasks.length === 0) {
     tasks = [
-      { description: `Research and analyze: ${goal.slice(0, 100)}`, type: 'research' },
-      { description: `Design solution for: ${goal.slice(0, 100)}`, type: 'analysis' },
-      { description: `Implement core of: ${goal.slice(0, 100)}`, type: 'code' },
-      { description: `Polish and refine: ${goal.slice(0, 100)}`, type: 'creative' },
+      { description: `Plan and architect the overall structure: ${goal}`, type: 'analysis' },
+      { description: `Build the core implementation: ${goal}`, type: 'code' },
+      { description: `Design the user experience and visual style: ${goal}`, type: 'design' },
+      { description: `Review, test, and polish the final output: ${goal}`, type: 'technical' },
     ];
   }
 

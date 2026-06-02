@@ -19,6 +19,7 @@ const DEFAULT_MULTI_STATE = {
   tasks: [], agentOutputs: {}, synthesis: '',
   selectedAgents: [], agentReasoning: '',
   loopCount: 2, loopIndex: 0,
+  sharedContext: { goal: '', files: [], agentSummaries: {} },
 };
 
 function setMultiState(partial) {
@@ -207,6 +208,44 @@ async function waitForContentScript(tabId, maxSec = 15) {
     await sleep(1000);
   }
   return false;
+}
+
+/* ── Shared Context / Task Prompt Builder ── */
+
+function buildTaskPrompt(task, allTasks, allOutputs, goal) {
+  const role = task.assignedTo ? getAgent(task.assignedTo)?.name || task.assignedTo : 'agent';
+  const otherTasks = allTasks.filter(t => t !== task);
+  const doneTasks = otherTasks.filter(t => t.status === 'done');
+  const pendingTasks = otherTasks.filter(t => t.status !== 'done');
+
+  const existingFiles = [];
+  if (allOutputs) {
+    for (const [, data] of Object.entries(allOutputs)) {
+      if (data.output) {
+        const matches = data.output.match(/<file\s+name=["']([^"']+)["']>/gi);
+        if (matches) matches.forEach(m => existingFiles.push(m.replace(/<file\s+name=["']|["']>/g, '')));
+      }
+    }
+  }
+
+  let parts = [];
+  parts.push(`## The Goal\n${goal}\n`);
+  parts.push(`## Your Role\nYou are acting as "${role}". Your specific task: ${task.description}\n`);
+  
+  if (doneTasks.length > 0) {
+    parts.push(`## What Other Agents Have Already Completed\n${doneTasks.map(t => `- ${t.assignedTo || 'agent'}: ${t.description}`).join('\n')}\n`);
+  }
+  if (pendingTasks.length > 0) {
+    parts.push(`## What Other Agents Are Working On\n${pendingTasks.map(t => `- ${t.assignedTo || 'agent'}: ${t.description}`).join('\n')}\n`);
+  }
+  if (existingFiles.length > 0) {
+    parts.push(`## Already Created Files\n${[...new Set(existingFiles)].join(', ')}\nOnly create NEW files not in this list.\n`);
+  }
+  if (task.type === 'code') {
+    parts.push(`## Output Format\nSplit your code into separate files. Wrap each file in <file name="filename.ext"> and </file> tags.\nExample:\n<file name="index.html">\n<!DOCTYPE html>\n<html>\n</file>\n<file name="style.css">\n/* CSS */\n</file>\n<file name="script.js">\n// JS\n</file>`);
+  }
+
+  return parts.join('\n---\n');
 }
 
 /* ── Login check ── */

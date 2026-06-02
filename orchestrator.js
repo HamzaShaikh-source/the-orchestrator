@@ -78,7 +78,7 @@ async function ensureTab(agent, usedTabs, manualUrls) {
   return tab;
 }
 
-async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs) {
+async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal) {
   const tab = await ensureTab(agent, usedTabs, manualUrls);
   await waitTab(tab.id);
   await sleep(4000);
@@ -87,30 +87,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
     throw new Error(`Content script not detected on ${agent.name} (${agent.url}). Ensure the extension is loaded at chrome://extensions, open ${agent.url} manually, and refresh the tab.`);
   }
 
-  let instruction = task.description;
-  if (task.type === 'code') {
-    const existingFiles = [];
-    if (allAgentOutputs) {
-      for (const [, data] of Object.entries(allAgentOutputs)) {
-        if (data.output) {
-          const matches = data.output.match(/<file\s+name=["']([^"']+)["']>/gi);
-          if (matches) matches.forEach(m => existingFiles.push(m.replace(/<file\s+name=["']|["']>/g, '')));
-        }
-      }
-    }
-    const context = existingFiles.length ? `\nAlready created files: ${[...new Set(existingFiles)].join(', ')}. Only create NEW files not in this list.` : '';
-    instruction += `${context}\n\nIMPORTANT: Split your code into separate files. Wrap each file in <file name="filename.ext"> and </file> tags. Example:
-<file name="index.html">
-<!DOCTYPE html>
-<html>
-</file>
-<file name="style.css">
-/* CSS */
-</file>
-<file name="script.js">
-// JS
-</file>`;
-  }
+  const instruction = buildTaskPrompt(task, tasks, allAgentOutputs, goal);
   let r = await send(tab.id, { action: 'inject', text: instruction });
   if (r?.error) throw new Error(`${agent.name} inject: ${r.error}`);
   await sleep(1000);
@@ -211,11 +188,33 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
   try {
     const usedTabs = {};
 
-    /* ── 0. AI Agent Selection ── */
-    await setMultiState({ step: 'agent-selection', goal, selectedAgents: [], agentReasoning: '', tasks: [], agentOutputs: {}, synthesis: '' });
-
+    /* ── 0. Determine agents to use (user-selected or will be AI-chosen) ── */
     let finalAgents = selectedAgents;
-    if (!finalAgents || finalAgents.length === 0) {
+
+    /* ── 0a. Login Check — BEFORE any AI interaction ── */
+    if (finalAgents && finalAgents.length > 0) {
+      /* User pre-selected agents — verify them first */
+      await setMultiState({ step: 'login-check', goal, selectedAgents: finalAgents, tasks: [], agentOutputs: {}, synthesis: '' });
+      const loginResult = await runLoginCheck(finalAgents);
+      if (!loginResult.allDone) {
+        console.warn('[Orch] Login check failed — aborting');
+        await setMultiState({ step: 'login-check', loginCheck: { ...loginResult, status: 'failed' } });
+        multiRunning = false;
+        return;
+      }
+    } else {
+      /* No agents selected — first verify ChatGPT (needed for selector), then AI selects, then verify rest */
+      await setMultiState({ step: 'login-check', goal, selectedAgents: [], tasks: [], agentOutputs: {}, synthesis: '' });
+      const selectorCheck = await runLoginCheck(['chatgpt']);
+      if (!selectorCheck.allDone) {
+        console.warn('[Orch] ChatGPT not logged in — cannot run AI selection');
+        await setMultiState({ step: 'login-check', loginCheck: { ...selectorCheck, status: 'failed', error: 'ChatGPT must be logged in for AI agent selection.' } });
+        multiRunning = false;
+        return;
+      }
+
+      /* Now run AI selection */
+      await setMultiState({ step: 'agent-selection', goal, selectedAgents: [], agentReasoning: '', tasks: [], agentOutputs: {}, synthesis: '' });
       const aiResult = await aiSelectAgents(goal, usedTabs);
       if (aiResult) {
         finalAgents = aiResult.selected;
@@ -227,20 +226,30 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
         await setMultiState({ selectedAgents: finalAgents, agentReasoning: 'keyword fallback' });
         console.log(`[Orch] Fallback agents: ${finalAgents.join(', ')}`);
       }
-    }
-    if (multiCancelled) throw new CancelError();
 
-    /* ── 0b. Login Check for selected agents ── */
-    if (finalAgents && finalAgents.length > 0) {
-      const loginResult = await runLoginCheck(finalAgents);
-      if (!loginResult.allDone) {
-        console.warn('[Orch] Login check failed — aborting');
-        await setMultiState({ step: 'login-check', loginCheck: { ...loginResult, status: 'failed' } });
-        multiRunning = false;
-        return;
+      /* Verify remaining selected agents (skip ChatGPT, already checked) */
+      const remaining = finalAgents.filter(id => id !== 'chatgpt');
+      if (remaining.length > 0) {
+        await setMultiState({ step: 'login-check', selectedAgents: finalAgents, agentReasoning: '' });
+        const loginResult = await runLoginCheck(remaining);
+        if (!loginResult.allDone) {
+          console.warn('[Orch] Login check failed for remaining agents — aborting');
+          await setMultiState({ step: 'login-check', loginCheck: { ...loginResult, status: 'failed' } });
+          multiRunning = false;
+          return;
+        }
       }
     }
     if (multiCancelled) throw new CancelError();
+
+    /* Initialize shared context */
+    await setMultiState({
+      sharedContext: {
+        goal,
+        files: [],
+        agentSummaries: {},
+      },
+    });
 
     /* ── 1. Plan ── */
     await setMultiState({ step: 'planning', tasks: [], agentOutputs: {}, synthesis: '' });
@@ -252,7 +261,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     await setMultiState({ tasks, step: 'running' });
     if (multiCancelled) throw new CancelError();
 
-    /* ── 3. Execute (sequential, one tab per agent) ── */
+    /* ── 3. Execute (sequential, one tab per agent, with shared context) ── */
     const agentOutputs = {};
 
     for (const task of tasks) {
@@ -264,10 +273,10 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       task.status = 'in-progress';
       await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
 
-      console.log(`[Orch] Running task #${tasks.indexOf(task) + 1} on ${agent.name}`);
+      console.log(`[Orch] Running task #${tasks.indexOf(task) + 1} on ${agent.name} (type: ${task.type})`);
 
       try {
-        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs);
+        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal);
       } catch (err) {
         if (err instanceof CancelError) throw err;
         console.error(`[Orch] Task failed on ${agent.name}:`, err);
