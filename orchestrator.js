@@ -98,7 +98,7 @@ function friendlyError(err, agentName) {
 
 /* ── Brain: generate detailed task assignment for a specialist ── */
 
-async function brainWriteTaskPrompt(task, agent, allTasks, agentOutputs, goal, usedTabs) {
+async function brainWriteTaskPrompt(task, agent, allTasks, agentOutputs, goal, usedTabs, projectFiles = {}) {
   const brain = getAgent(BRAIN_ID);
   if (!brain) return buildTaskPrompt(task, allTasks, agentOutputs, goal); /* fallback */
 
@@ -115,7 +115,12 @@ async function brainWriteTaskPrompt(task, agent, allTasks, agentOutputs, goal, u
     taskType: task.type,
     otherTasks: allTasks.filter(t => t !== task).map(t => `${t.assignedTo || '?'}: ${t.description} [${t.status}]`).join('\n'),
     completedSoFar: doneOutputs || 'Nothing completed yet.',
+    userFiles: Object.keys(projectFiles || {}),
   };
+
+  const userFilesSection = context.userFiles.length > 0
+    ? `\n\n## User's Existing Files\n${context.userFiles.map(f => `- ${f}`).join('\n')}\nThese files already exist. Modify them if the task requires, or create new ones.`
+    : '';
 
   const prompt = `You are the BRAIN of a multi-agent system. Your job is to write a precise, detailed task assignment for a specialist AI.
 
@@ -134,7 +139,7 @@ ${context.otherTasks}
 
 ## What's Been Completed So Far
 ${context.completedSoFar}
-
+${userFilesSection}
 ## Your Assignment
 Write a detailed prompt for ${context.specialistName} that:
 1. Explains the FULL goal so they understand the bigger picture
@@ -278,7 +283,7 @@ async function brainRequestFix(task, agent, originalOutput, review, usedTabs) {
 
 /* ── Specialist task execution with brain management ── */
 
-async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal) {
+async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal, projectFiles = {}) {
   const maxRetries = 2;
   let lastError = null;
 
@@ -304,7 +309,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       console.log(`[Brain] Writing task assignment for ${agent.name}...`);
       await setMultiState({ step: 'brain-writing', brainPhase: `Brain preparing task for ${agent.name}...`, agentOutputs: { ...agentOutputs } });
 
-      const instruction = await brainWriteTaskPrompt(task, agent, tasks, allAgentOutputs, goal, usedTabs);
+      const instruction = await brainWriteTaskPrompt(task, agent, tasks, allAgentOutputs, goal, usedTabs, projectFiles);
 
       /* Step 2: Specialist executes the brain's assignment */
       console.log(`[Brain] ${agent.name} executing: ${task.description.slice(0, 50)}`);
@@ -398,7 +403,7 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
 
 /* ── Main pipeline ── */
 
-async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = null) {
+async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = null, projectFiles = {}) {
   if (multiRunning) {
     await setMultiState({ step: 'error', error: 'Pipeline already running.' });
     return;
@@ -449,7 +454,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     }
     if (multiCancelled) throw new CancelError();
 
-    await setMultiState({ sharedContext: { goal, files: [], agentSummaries: {} } });
+    await setMultiState({ sharedContext: { goal, files: Object.keys(projectFiles), agentSummaries: {} } });
 
     /* ── 1. Brain creates the task plan ── */
     await setMultiState({ step: 'planning' });
@@ -492,7 +497,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       console.log(`[Orch] Brain managing task on ${agent.name}: ${task.description.slice(0, 50)}`);
 
       try {
-        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal);
+        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles);
       } catch (err) {
         if (err instanceof CancelError) throw err;
       }

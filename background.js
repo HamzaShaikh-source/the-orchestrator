@@ -298,7 +298,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.storage.local.set({ agentConvs: msg.convs || {} }).then(() => sendResponse({ ok: true }));
     return true;
   } else if (msg.action === 'runMulti') {
-    runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null);
+    runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null, msg.projectFiles || {});
     sendResponse({ ok: true });
   } else if (msg.action === 'loginRetry') {
     /* Mark retry requested — runLoginCheck will pick it up */
