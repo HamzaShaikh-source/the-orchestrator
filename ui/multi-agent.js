@@ -118,34 +118,44 @@ function syncFilesFromAI(agentOutputs) {
 
 /* Also scan synthesis text for file tags */
 function syncFilesFromSynthesis(synthText) {
-  if (!synthText) return;
+  if (!synthText) { console.log('[Files] No synthesis text to scan'); return; }
   let changed = false;
   const FILE_RE = /<file\s+name=["']([^"']+)["']>([\s\S]*?)<\/file>/gi;
   let match;
+  let count = 0;
   while ((match = FILE_RE.exec(synthText))) {
+    count++;
     const name = match[1].trim(), content = match[2].trim();
+    console.log(`[Files] Found tag: name="${name}" content.length=${content.length}`);
     if (projectFiles[name] !== content) { projectFiles[name] = content; changed = true; }
   }
-  if (changed) renderFilePanel();
+  console.log(`[Files] syncFilesFromSynthesis: ${count} tags found, changed=${changed}, total files=${Object.keys(projectFiles).length}`);
+  if (changed) {
+    console.log('[Files] Calling renderFilePanel from syncFilesFromSynthesis');
+    renderFilePanel();
+  }
 }
 
 function renderFilePanel() {
   const names = Object.keys(projectFiles);
-  if (names.length === 0) return;
+  console.log(`[Files] renderFilePanel called. Files: ${names.length}`, names);
+  if (names.length === 0) { console.log('[Files] No files, returning'); return; }
+  
   /* Remove old panel first */
   const old = document.getElementById('file-panel-output');
-  if (old) old.remove();
+  if (old) { console.log('[Files] Removing old panel'); old.remove(); }
 
-  /* Create panel and insert after synthesis section */
-  const synthSection = document.getElementById('synth-section');
+  /* Get content element */
   const content = document.getElementById('content');
-  if (!content) return;
+  if (!content) { console.log('[Files] ERROR: #content not found!'); return; }
+  console.log('[Files] #content found, children:', content.children.length);
 
+  /* Create panel */
   const panel = document.createElement('div');
   panel.id = 'file-panel-output';
   panel.style.cssText = 'margin-top:16px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)';
   panel.innerHTML = `
-    <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:16px">Generated Files (${names.length})</div>
+    <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:16px">✅ Generated Files (${names.length})</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">
     ${names.map(n => {
       const ext = n.split('.').pop();
@@ -154,7 +164,7 @@ function renderFilePanel() {
         <span style="font-size:1.2rem">${icon}</span>
         <div style="flex:1;min-width:0">
           <div style="font-family:monospace;font-size:0.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis">${escapeHtml(n)}</div>
-          <div style="font-size:0.65rem;color:var(--text-muted)">${(projectFiles[n].length / 1024).toFixed(1)} KB · ${(projectFiles[n].match(/\n/g) || []).length + 1} lines</div>
+          <div style="font-size:0.65rem;color:var(--text-muted)">${(projectFiles[n].length / 1024).toFixed(1)} KB</div>
         </div>
         <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">📋</button>
       </div>`;
@@ -165,8 +175,10 @@ function renderFilePanel() {
     </div>
   `;
 
-  /* Insert after synthesis at the end of content */
   content.appendChild(panel);
+  console.log('[Files] Panel appended to #content. Content now has', content.children.length, 'children');
+  console.log('[Files] Panel innerHTML length:', panel.innerHTML.length);
+  console.log('[Files] download-zip-btn exists:', !!document.getElementById('download-zip-btn'));
 
   /* Wire up copy buttons */
   panel.querySelectorAll('.copy-file').forEach(btn => {
