@@ -170,6 +170,9 @@ function renderFilePanel() {
     </div>
   `;
 
+  /* Append panel to content area */
+  content.appendChild(panel);
+
   /* Wire up copy buttons */
   panel.querySelectorAll('.copy-file').forEach(btn => {
     btn.addEventListener('click', () => {
