@@ -222,8 +222,10 @@ function renderFilePanel() {
 }
 
 function renderSynthesis(text) {
-  $('#synth-section').classList.toggle('hidden', !text);
-  $('#synth-body').textContent = text || '';
+  /* Strip <file> tags from displayed text (they're extracted to the file panel) */
+  const displayText = text ? text.replace(/<file\s+name=["'][^"']+["']>[\s\S]*?<\/file>/gi, '').trim() : '';
+  $('#synth-section').classList.toggle('hidden', !displayText);
+  $('#synth-body').textContent = displayText || '';
   /* Also scan synthesis for file tags */
   if (text) {
     const before = Object.keys(projectFiles).length;
@@ -413,6 +415,8 @@ $('#run-btn').addEventListener('click', async () => {
   const goal = $('#goal-input').value.trim();
   if (!goal) { showToast('Enter a goal first', 'error'); return; }
   running = true;
+  projectFiles = {}; /* Clear files from previous runs */
+  attachedFiles = [];
   $('#run-btn').classList.add('hidden');
   $('#stop-btn').classList.remove('hidden');
   $('#status-dot').className = 'status-dot working';
