@@ -520,7 +520,22 @@ function escapeHtml(t) { const d = document.createElement('div'); d.textContent 
 
 /* ── Init ── */
 
-$('loading-init').classList.add('hidden');
-$('app-content').classList.remove('hidden');
-renderSuggestions(); renderAgentCards(); renderChatList(); newChat(); checkOnboarding();
-showToast('Orchestrator ready — select agents and enter a goal', 'info');
+try {
+  const loading = $('loading-init');
+  if (loading) loading.classList.add('hidden');
+  const app = $('app-content');
+  if (app) app.classList.remove('hidden');
+  renderSuggestions();
+  renderAgentCards();
+  renderChatList();
+  newChat();
+  checkOnboarding();
+  showToast('Orchestrator ready — select agents and enter a goal', 'info');
+} catch (e) {
+  console.error('Init error:', e);
+  /* Emergency fallback: try to hide loading and show app */
+  try {
+    document.getElementById('loading-init')?.classList?.add('hidden');
+    document.getElementById('app-content')?.classList?.remove('hidden');
+  } catch {}
+}
