@@ -3,496 +3,199 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>The Orchestrator</title>
+<title>The Orchestrator – Multi-Agent AI</title>
 <style>
-/* ── Design Tokens ── */
-:root {
-  --bg: #080b12;
-  --surface: #11141e;
-  --surface-2: #181d2a;
-  --surface-3: #202636;
-  --line: #262d40;
-  --line-strong: #354060;
-  --text: #eef2f8;
-  --muted: #949eb8;
-  --dim: #65708a;
-  --brand: #42c6a3;
-  --brand-glow: rgba(66,198,163,0.15);
-  --accent: #4f8fff;
-  --accent-glow: rgba(79,143,255,0.12);
-  --danger: #f55;
-  --warning: #f0c040;
-  --radius: 10px;
-  --radius-sm: 6px;
-  --radius-lg: 16px;
-  --shadow: 0 18px 48px rgba(0,0,0,0.45);
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
-  --sidebar-w: 280px;
-  --transition: cubic-bezier(0.16, 1, 0.3, 1);
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  font-size: 14px;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  overflow: hidden;
-}
-::selection { background: rgba(66,198,163,0.25); }
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2e3545; border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: #3d4658; }
-
-/* ── Layout ── */
-.layout { display: grid; grid-template-columns: var(--sidebar-w) 1fr; height: 100vh; min-width: 0; }
-
-/* ── Sidebar ── */
-.sidebar {
-  background: var(--surface);
-  border-right: 1px solid var(--line);
-  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
-}
-.sidebar-header {
-  padding: 16px 16px 12px;
-  border-bottom: 1px solid var(--line);
-  flex: 0 0 auto;
-}
-.sidebar-header h1 {
-  font-size: 16px; font-weight: 750;
-  background: linear-gradient(135deg, var(--brand), var(--accent));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.sidebar-header .sub { margin-top: 2px; color: var(--muted); font-size: 10px; -webkit-text-fill-color: var(--muted); }
-.chat-list { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
-.chat-item {
-  padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer;
-  transition: all 0.15s var(--transition); border: 1px solid transparent;
-}
-.chat-item:hover { background: var(--surface-2); border-color: var(--line); }
-.chat-item.active { background: var(--surface-2); border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand-glow); }
-.chat-item-title { font-size: 12px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-item:hover .chat-item-title { white-space: normal; word-break: break-word; }
-.chat-item-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 10px; color: var(--dim); }
-
-/* ── Main ── */
-.main { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-
-/* ── Agent Strip ── */
-.agent-strip {
-  display: flex; gap: 4px; padding: 10px 16px;
-  border-bottom: 1px solid var(--line); flex: 0 0 auto;
-  background: linear-gradient(180deg, var(--surface) 0%, transparent 100%);
-}
-.agent-strip-card {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 20px;
-  background: var(--surface-2); border: 1px solid var(--line);
-  cursor: pointer; transition: all 0.2s var(--transition);
-  font-size: 12px; user-select: none;
-}
-.agent-strip-card:hover { border-color: var(--line-strong); background: var(--surface-3); transform: translateY(-1px); }
-.agent-strip-card.selected { border-color: var(--brand); background: rgba(66,198,163,0.08); box-shadow: 0 0 12px var(--brand-glow); }
-.agent-strip-card .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); transition: all 0.3s var(--transition); }
-.agent-strip-card .dot.idle { background: var(--dim); }
-.agent-strip-card .dot.working { background: var(--warning); box-shadow: 0 0 6px rgba(240,192,64,0.5); animation: pulse-dot 1s ease-in-out infinite; }
-.agent-strip-card .dot.done { background: var(--brand); box-shadow: 0 0 6px var(--brand-glow); }
-.agent-strip-card .dot.error { background: var(--danger); box-shadow: 0 0 6px rgba(255,85,85,0.4); }
-@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-/* ── Top Bar ── */
-.topbar {
-  padding: 14px 20px 12px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
-  background: linear-gradient(180deg, var(--surface) 0%, transparent 100%);
-}
-.goal-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: start; }
-.topbar textarea {
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 10px 14px; color: var(--text); font: inherit; font-size: 13px;
-  resize: vertical; min-height: 44px; max-height: 120px;
-  transition: border-color 0.2s, box-shadow 0.2s; outline: none;
-}
-.topbar textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-glow); }
-.topbar textarea::placeholder { color: #555e70; }
-.topbar button {
-  padding: 10px 22px; border-radius: var(--radius); border: none;
-  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: all 0.2s var(--transition); position: relative; overflow: hidden;
-}
-#run-btn { background: var(--brand); color: #07130f; }
-#run-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px var(--brand-glow); }
-#run-btn:active:not(:disabled) { transform: translateY(0); }
-#run-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-#stop-btn { background: transparent; color: var(--danger); border: 1px solid rgba(255,85,85,0.3); }
-#stop-btn:hover { background: rgba(255,85,85,0.08); }
-
-/* ── Status ── */
-#status-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-#status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); transition: all 0.3s; flex: 0 0 auto; }
-#status-dot.working { background: var(--warning); box-shadow: 0 0 8px rgba(240,192,64,0.4); animation: pulse-dot 1s ease-in-out infinite; }
-#status-dot.done { background: var(--brand); box-shadow: 0 0 8px var(--brand-glow); }
-#status-dot.error { background: var(--danger); box-shadow: 0 0 8px rgba(255,85,85,0.4); }
-#status-text { font-size: 13px; color: var(--muted); font-weight: 500; }
-
-/* ── Loading bar ── */
-#loading-bar { height: 3px; background: var(--surface-3); border-radius: 2px; overflow: hidden; margin-top: 8px; }
-#loading-bar.hidden { display: none; }
-#loading-bar::after {
-  content: ''; display: block; height: 100%; width: 25%;
-  background: linear-gradient(90deg, var(--brand), var(--accent), var(--brand));
-  border-radius: 2px; animation: loading-slide 1.2s ease-in-out infinite;
-}
-@keyframes loading-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
-
-/* ── Error retry ── */
-#error-retry-section { margin-top: 8px; padding: 10px 14px; background: rgba(255,85,85,0.06); border: 1px solid rgba(255,85,85,0.15); border-radius: var(--radius-sm); }
-#error-retry-section.hidden { display: none !important; }
-#error-msg { font-size: 12px; color: var(--danger); margin-bottom: 8px; line-height: 1.5; }
-#error-retry-btn { background: var(--brand); color: #07130f; border: 0; border-radius: var(--radius-sm); padding: 6px 16px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
-
-/* ── Suggestions ── */
-#suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.suggestion-chip {
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: 20px;
-  padding: 4px 14px; font: inherit; font-size: 11px; color: var(--muted); cursor: pointer;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;
-  transition: all 0.2s var(--transition);
-}
-.suggestion-chip:hover { border-color: var(--brand); color: var(--text); background: rgba(66,198,163,0.06); }
-
-/* ── Content area ── */
-.content { flex: 1; overflow-y: auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 16px; }
-.section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
-
-/* ── Task cards ── */
-.task-grid { display: grid; gap: 6px; }
-.task-card {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--radius-sm); transition: all 0.2s;
-}
-.task-card .num { font-size: 11px; font-weight: 700; color: var(--dim); flex: 0 0 24px; }
-.task-card .desc { flex: 1; font-size: 12px; line-height: 1.4; }
-.task-card .meta { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
-.task-card .assigned { font-size: 10px; color: var(--muted); padding: 2px 8px; background: var(--surface-3); border-radius: 4px; }
-.task-card .status { font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
-.task-card .status.done { background: rgba(66,198,163,0.1); color: var(--brand); }
-.task-card .status.in-progress { background: rgba(240,192,64,0.1); color: var(--warning); }
-.task-card .status.error { background: rgba(255,85,85,0.1); color: var(--danger); }
-.task-card .status.pending { background: var(--surface-3); color: var(--dim); }
-.task-card .status.streaming { background: rgba(240,192,64,0.1); color: var(--warning); animation: pulse-dot 1s ease-in-out infinite; }
-
-/* ── Confirmation ── */
-#confirm-section { display: none; align-items: center; gap: 10px; padding: 12px 16px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
-#confirm-section .msg { flex: 1; font-size: 12px; color: var(--muted); }
-#confirm-btn, #cancel-tasks-btn { font: inherit; font-size: 12px; padding: 6px 16px; border-radius: var(--radius-sm); border: 1px solid var(--line); cursor: pointer; font-weight: 600; transition: all 0.2s; }
-#confirm-btn { background: var(--brand); color: #07130f; border-color: var(--brand); }
-#confirm-btn:hover { box-shadow: 0 2px 12px var(--brand-glow); }
-#cancel-tasks-btn { background: transparent; color: var(--muted); }
-.task-edit { width: 100%; background: var(--surface-3); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; color: var(--text); font-size: 12px; font-family: inherit; resize: vertical; }
-
-/* ── Output cards ── */
-.output-area { display: flex; flex-direction: column; gap: 8px; }
-.output-card {
-  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius);
-  overflow: hidden; transition: all 0.2s;
-}
-.output-card.streaming { border-color: var(--warning); box-shadow: 0 0 12px rgba(240,192,64,0.06); }
-.output-card .header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 14px; border-bottom: 1px solid var(--line);
-  font-size: 12px; font-weight: 600;
-}
-.output-card .header .icon { font-size: 16px; }
-.output-card .body { padding: 14px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; font-family: 'JetBrains Mono', 'Fira Code', monospace; max-height: 400px; overflow-y: auto; }
-.badge-streaming { font-size: 10px; color: var(--warning); margin-left: auto; }
-.badge-retry { font-size: 10px; color: var(--brand); margin-left: auto; }
-.badge-error { font-size: 10px; color: var(--danger); margin-left: auto; }
-
-/* ── File System Panel ── */
-#files-section { display: none; }
-.file-panel {
-  display: grid; grid-template-columns: 200px 1fr; gap: 0;
-  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
-  background: var(--surface-2); min-height: 200px;
-}
-.file-tree {
-  border-right: 1px solid var(--line); padding: 8px;
-  background: var(--surface); overflow-y: auto; max-height: 400px;
-}
-.file-tree-header {
-  display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 0 4px;
-}
-.file-tree-header span { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); }
-.new-file-btn {
-  background: none; border: 1px solid var(--line); border-radius: 4px; color: var(--muted);
-  font-size: 14px; width: 22px; height: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s; line-height: 1;
-}
-.new-file-btn:hover { border-color: var(--brand); color: var(--brand); }
-.file-item {
-  display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px;
-  cursor: pointer; font-size: 11px; transition: all 0.15s;
-  border: 1px solid transparent; margin-bottom: 2px;
-}
-.file-item:hover { background: var(--surface-2); border-color: var(--line); }
-.file-item.active { background: rgba(66,198,163,0.08); border-color: var(--brand); }
-.file-item .icon { font-size: 12px; }
-.file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-item .del-btn {
-  opacity: 0; background: none; border: none; color: var(--dim); cursor: pointer; font-size: 12px; padding: 0 2px;
-  transition: opacity 0.15s;
-}
-.file-item:hover .del-btn { opacity: 1; }
-.file-item .del-btn:hover { color: var(--danger); }
-.file-editor { display: flex; flex-direction: column; }
-.file-editor-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 600; color: var(--muted);
-  background: var(--surface);
-}
-.file-editor-header .actions { display: flex; gap: 6px; }
-.file-editor-header .actions button {
-  background: none; border: 1px solid var(--line); border-radius: 4px; color: var(--muted);
-  font-size: 10px; padding: 3px 10px; cursor: pointer; transition: all 0.2s; font-family: inherit;
-}
-.file-editor-header .actions button:hover { border-color: var(--brand); color: var(--brand); }
-.file-editor textarea {
-  flex: 1; background: var(--surface-3); border: none; color: var(--text);
-  font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.6;
-  padding: 12px; resize: none; outline: none; min-height: 150px; max-height: 400px;
-}
-
-/* ── Synthesis ── */
-.synth-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.synth-card .header { padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; }
-.synth-card .body { padding: 14px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; max-height: 500px; overflow-y: auto; }
-#export-section { margin-top: 8px; }
-#export-btn {
-  background: transparent; color: var(--text); border: 1px solid var(--line);
-  border-radius: var(--radius-sm); padding: 8px 16px; font: inherit; font-size: 12px; cursor: pointer;
-  transition: all 0.2s;
-}
-#export-btn:hover { border-color: var(--muted); }
-
-/* ── Overlays ── */
-#onboarding-overlay, #login-overlay {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1000;
-  display: flex; align-items: center; justify-content: center;
-  backdrop-filter: blur(4px);
-}
-#onboarding-overlay.hidden, #login-overlay.hidden { display: none !important; }
-#onboarding-bg, #login-overlay-bg {
-  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.6);
-}
-#onboarding-box, #login-overlay-box {
-  position: relative; background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: var(--radius-lg); padding: 36px; max-width: 500px; width: 90%;
-  z-index: 1; box-shadow: var(--shadow);
-  animation: modal-in 0.3s var(--transition);
-}
-@keyframes modal-in { from { opacity: 0; transform: translateY(20px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
-#onboarding-box h1 { font-size: 22px; margin-bottom: 8px; background: linear-gradient(135deg, var(--brand), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-#onboarding-box .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-#onboarding-steps { text-align: left; margin-bottom: 20px; padding-left: 20px; }
-#onboarding-steps li { margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
-#onboarding-steps li strong { color: var(--brand); }
-#onboarding-dismiss {
-  background: var(--brand); color: #07130f; border: 0; border-radius: var(--radius-sm);
-  padding: 10px 28px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
-  transition: all 0.2s;
-}
-#onboarding-dismiss:hover { transform: scale(1.03); box-shadow: 0 4px 16px var(--brand-glow); }
-#login-retry-btn, #login-cancel-btn { font: inherit; font-size: 12px; padding: 8px 16px; border-radius: var(--radius-sm); border: 1px solid var(--line); cursor: pointer; transition: all 0.2s; }
-#login-retry-btn { background: var(--brand); color: #07130f; border-color: var(--brand); }
-#login-cancel-btn { background: transparent; color: var(--text); }
-
-/* ── Toast ── */
-#toast-container {
-  position: fixed; bottom: 20px; right: 20px; z-index: 2000;
-  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
-}
-.toast {
-  padding: 10px 18px; border-radius: var(--radius-sm); font-size: 12px;
-  background: var(--surface-2); border: 1px solid var(--line);
-  box-shadow: var(--shadow); pointer-events: auto;
-  animation: toast-in 0.3s var(--transition);
-  max-width: 360px;
-}
-.toast.success { border-color: var(--brand); }
-.toast.error { border-color: var(--danger); }
-.toast.info { border-color: var(--accent); }
-@keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
-.toast-out { animation: toast-out 0.3s var(--transition) forwards; }
-@keyframes toast-out { to { opacity: 0; transform: translateX(40px); } }
-
-/* ── Responsive ── */
-@media (max-width: 800px) {
-  .layout { grid-template-columns: 1fr; height: auto; }
-  .sidebar { max-height: 160px; overflow-y: auto; }
-  .goal-row { grid-template-columns: 1fr; }
-  .task-grid { grid-template-columns: 1fr; }
-  .file-panel { grid-template-columns: 1fr; }
-  .file-tree { max-height: 120px; border-right: none; border-bottom: 1px solid var(--line); }
-}
-
-/* ── Loading & App states ── */
-#loading-init {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--bg); z-index: 2000;
-  font-size: 14px; color: var(--muted);
-}
-#loading-init.hidden { display: none !important; }
-#app-content.hidden { display: none !important; }
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a24;
+    --surface-2: #23222e;
+    --surface-3: #2c2b38;
+    --line: #2e2d3a;
+    --text: #ededf0;
+    --text-secondary: #a1a1b0;
+    --brand: #10a37f;
+    --brand-light: #1a7f64;
+    --accent: #4285f4;
+    --danger: #f44250;
+    --warning: #f5a623;
+    --radius-sm: 8px;
+    --radius: 12px;
+    --radius-lg: 20px;
+    --shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+  .app { display: flex; height: 100vh; }
+  
+  /* Sidebar */
+  .sidebar {
+    width: 280px; background: var(--surface);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    backdrop-filter: blur(10px);
+  }
+  .sidebar-header { padding: 20px; border-bottom: 1px solid var(--line); }
+  .sidebar-header h1 {
+    font-size: 20px; font-weight: 600;
+    background: linear-gradient(135deg, var(--brand), var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .new-chat-btn {
+    width: 100%; margin-top: 12px; padding: 10px;
+    border-radius: var(--radius);
+    background: rgba(16,163,127,0.15);
+    border: 1px solid var(--brand);
+    color: var(--brand); font-weight: 500; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .new-chat-btn:hover { background: rgba(16,163,127,0.25); transform: translateY(-1px); }
+  .chat-list { flex: 1; overflow-y: auto; padding: 12px; }
+  .chat-item {
+    padding: 12px; border-radius: var(--radius-sm); margin-bottom: 6px;
+    cursor: pointer; transition: all 0.2s; border: 1px solid transparent;
+  }
+  .chat-item:hover { background: var(--surface-2); border-color: var(--line); }
+  .chat-item.active { background: var(--surface-3); border-color: var(--brand); }
+  .chat-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chat-meta { font-size: 10px; color: var(--text-secondary); margin-top: 4px; display: flex; justify-content: space-between; }
+  
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  
+  /* Agent strip */
+  .agent-strip {
+    display: flex; gap: 8px; padding: 12px 20px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(26,26,36,0.7); backdrop-filter: blur(8px);
+  }
+  .agent-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 40px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    cursor: pointer; transition: all 0.2s; font-size: 13px;
+  }
+  .agent-chip.selected { background: rgba(16,163,127,0.2); border-color: var(--brand); }
+  .agent-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+  .agent-chip .dot.working { background: var(--warning); animation: pulse 1s infinite; }
+  .agent-chip .dot.done { background: var(--brand); }
+  
+  /* Input area */
+  .input-area { padding: 20px; border-bottom: 1px solid var(--line); }
+  .goal-input {
+    width: 100%; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px; color: var(--text); font-family: inherit; font-size: 14px;
+    resize: vertical; outline: none; transition: all 0.2s;
+  }
+  .goal-input:focus { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(16,163,127,0.2); }
+  .action-bar { display: flex; justify-content: space-between; margin-top: 12px; gap: 12px; }
+  .run-btn {
+    background: var(--brand); border: none; padding: 10px 20px;
+    border-radius: 40px; font-weight: 600; color: white; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .run-btn:hover { background: var(--brand-light); transform: scale(1.02); }
+  .stop-btn {
+    background: rgba(244,66,80,0.15); border: 1px solid var(--danger);
+    color: var(--danger); padding: 10px 20px; border-radius: 40px; cursor: pointer;
+  }
+  .file-attach { display: flex; align-items: center; gap: 12px; }
+  .file-label {
+    background: var(--surface-3); padding: 8px 16px; border-radius: 40px;
+    cursor: pointer; font-size: 12px;
+  }
+  
+  /* Status */
+  .status-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 20px; background: var(--surface);
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #555; }
+  .status-dot.working { background: var(--warning); animation: pulse 1s infinite; }
+  .status-dot.done { background: var(--brand); }
+  .status-dot.error { background: var(--danger); }
+  
+  /* Content */
+  .content { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; }
+  .section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary); margin-bottom: 12px; }
+  .task-card, .output-card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px; transition: all 0.2s;
+  }
+  .task-card:hover { border-color: var(--brand); }
+  .task-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .task-status { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--surface-3); }
+  .task-status.done { background: rgba(16,163,127,0.2); color: var(--brand); }
+  .task-status.error { background: rgba(244,66,80,0.2); color: var(--danger); }
+  .output-card .header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-weight: 500; }
+  .output-card .body { white-space: pre-wrap; font-size: 13px; line-height: 1.5; max-height: 300px; overflow-y: auto; }
+  .synthesis-card {
+    background: linear-gradient(135deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--brand); border-radius: var(--radius); padding: 20px;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  #confirm-bar { display: none; gap: 12px; margin-top: 16px; }
+  .hidden { display: none !important; }
+  
+  @media (max-width: 700px) { .sidebar { display: none; } }
 </style>
 </head>
 <body>
-
-<div id="loading-init">Loading...</div>
-
-<div id="app-content" class="hidden">
-<div class="layout">
-
-  <!-- ── Sidebar ── -->
+<div class="app">
   <aside class="sidebar">
     <div class="sidebar-header">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <h1>The Orchestrator</h1>
-        <button id="new-chat-btn" style="background:var(--brand);color:#07130f;border:0;border-radius:6px;padding:5px 10px;font:inherit;font-size:11px;font-weight:750;cursor:pointer">+ New</button>
-      </div>
-      <div class="sub">Multi-Agent Pipeline</div>
+      <h1>The Orchestrator</h1>
+      <button class="new-chat-btn" id="new-chat-btn">+ New Chat</button>
     </div>
     <div class="chat-list" id="chat-list"></div>
   </aside>
-
-  <!-- ── Main ── -->
   <div class="main">
-    <div class="agent-strip" id="agent-list"></div>
-
-    <div class="topbar">
-      <div class="goal-row">
-        <textarea id="goal-input" placeholder="What do you want to build? e.g. A dashboard for tracking expenses with charts and categories"></textarea>
-        <button id="run-btn">▶ Run</button>
-        <button id="stop-btn" class="hidden">■ Stop</button>
+    <div class="agent-strip" id="agent-strip"></div>
+    <div class="input-area">
+      <textarea class="goal-input" id="goal-input" rows="3" placeholder="What do you want to build? Example: 'Create a personal finance dashboard with charts and dark mode'"></textarea>
+      <div class="action-bar">
+        <div class="file-attach">
+          <label class="file-label">📎 Attach files <input type="file" id="file-upload" multiple style="display:none"></label>
+          <span id="file-count" style="font-size:12px;color:var(--text-secondary)"></span>
+        </div>
+        <div>
+          <button class="run-btn" id="run-btn">▶ Run</button>
+          <button class="stop-btn hidden" id="stop-btn">■ Stop</button>
+        </div>
       </div>
-      <div id="status-bar">
-        <span id="status-dot"></span>
-        <span id="status-text">Ready</span>
-      </div>
-      <div id="loading-bar" class="hidden"></div>
-      <div id="complexity-info" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">
-        <span id="complexity-text"></span>
-      </div>
-      <div id="error-retry-section" class="hidden">
-        <div id="error-msg"></div>
-        <button id="error-retry-btn">⟳ Retry</button>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-        <label for="file-upload" style="font-size:11px;color:var(--muted);cursor:pointer;padding:4px 12px;border:1px solid var(--line);border-radius:6px;transition:all 0.2s">📎 Attach Files</label>
-        <input type="file" id="file-upload" multiple style="display:none">
-        <span id="file-count" style="font-size:11px;color:var(--dim)"></span>
-      </div>
-      <div id="suggestions"></div>
     </div>
-
-    <div class="content">
-      <!-- Tasks -->
-      <section id="tasks-section" style="display:none">
+    <div class="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Ready</span>
+    </div>
+    <div class="content" id="content">
+      <div id="tasks-section" class="hidden">
         <div class="section-title">Task Breakdown</div>
-        <div class="task-grid" id="task-grid"></div>
-        <div id="confirm-section">
-          <span class="msg">Review the tasks. You can edit descriptions before running.</span>
-          <button id="cancel-tasks-btn">Cancel</button>
-          <button id="confirm-btn">✓ Confirm & Run</button>
+        <div id="task-list"></div>
+        <div id="confirm-bar">
+          <button id="confirm-tasks" class="run-btn">Confirm & Run</button>
+          <button id="cancel-tasks" class="stop-btn">Cancel</button>
         </div>
-      </section>
-
-      <!-- Agent Outputs -->
-      <section id="outputs-section" style="display:none">
+      </div>
+      <div id="outputs-section" class="hidden">
         <div class="section-title">Agent Outputs</div>
-        <div class="output-area" id="output-area"></div>
-      </section>
-
-      <!-- File System -->
-      <section id="files-section" style="display:none">
-        <div class="section-title">Files</div>
-        <div class="file-panel">
-          <div class="file-tree">
-            <div class="file-tree-header">
-              <span>Project Files</span>
-              <button class="new-file-btn" id="new-file-btn" title="New file">+</button>
-            </div>
-            <div id="file-list"></div>
-          </div>
-          <div class="file-editor" id="file-editor">
-            <div class="file-editor-header">
-              <span id="file-editor-name">Select a file</span>
-              <div class="actions">
-                <button id="send-file-to-ai-btn" style="display:none">Send to AI</button>
-              </div>
-            </div>
-            <textarea id="file-editor-content" placeholder="Select a file to edit..." readonly></textarea>
-          </div>
-        </div>
-      </section>
-
-      <!-- Synthesis -->
-      <section id="synth-section" style="display:none">
-        <div class="section-title">Synthesized Output</div>
-        <div class="synth-card">
-          <div class="header">Final Synthesis</div>
-          <div class="body" id="synth-body"></div>
-        </div>
-      </section>
-
-      <!-- Export -->
-      <section id="export-section" style="display:none">
-        <button id="export-btn">📄 Export as Markdown</button>
-      </section>
+        <div id="outputs-list"></div>
+      </div>
+      <div id="synth-section" class="hidden">
+        <div class="section-title">Final Synthesis</div>
+        <div class="synthesis-card" id="synth-body"></div>
+        <button id="export-btn" style="margin-top:12px; background:transparent; border:1px solid var(--brand); border-radius:40px; padding:8px 16px; color:var(--brand); cursor:pointer;">📄 Export Markdown</button>
+      </div>
     </div>
   </div>
 </div>
-</div> <!-- end app-content -->
-
-<!-- Onboarding -->
-<div id="onboarding-overlay" class="hidden">
-  <div id="onboarding-bg"></div>
-  <div id="onboarding-box">
-    <h1>The Orchestrator</h1>
-    <p class="sub">Multi-Agent AI Pipeline — no API keys, no servers.</p>
-    <ol id="onboarding-steps">
-      <li><strong>Select agents</strong> — Click agent icons above to pick which AIs to use</li>
-      <li><strong>Enter a goal</strong> — Describe what you want to build</li>
-      <li><strong>Click Run</strong> — The brain plans, assigns, and reviews each specialist's work</li>
-      <li><strong>Edit files</strong> — AI-generated files appear in the file panel. Edit them directly</li>
-    </ol>
-    <button id="onboarding-dismiss">Get Started →</button>
-  </div>
-</div>
-
-<!-- Login overlay -->
-<div id="login-overlay" class="hidden">
-  <div id="login-overlay-bg"></div>
-  <div id="login-overlay-box">
-    <h2>Login Check</h2>
-    <div id="login-agent-list"></div>
-    <div id="login-status-msg"></div>
-    <div id="login-actions" class="hidden">
-      <button id="login-retry-btn">Retry</button>
-      <button id="login-cancel-btn">Cancel Pipeline</button>
-    </div>
-  </div>
-</div>
-
-<!-- Toast container -->
-<div id="toast-container"></div>
-
 <script src="agents.js"></script>
 <script src="multi-agent.js"></script>
 </body>

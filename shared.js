@@ -1,10 +1,13 @@
-/* Shared utilities for service worker modules */
-/* Load this first via importScripts */
+/* shared.js - Core utilities, constants, login check, tab management */
 
-/* ── Pipeline globals ── */
+/* ── Constants ── */
 const DEEPSEEK_URL = 'https://chat.deepseek.com/';
 const CHATGPT_URL = 'https://chatgpt.com/';
+const GEMINI_URL = 'https://gemini.google.com/';
+const PERPLEXITY_URL = 'https://www.perplexity.ai/';
+const HUGGINGFACE_URL = 'https://huggingface.co/chat/';
 
+/* ── Pipeline globals ── */
 let cancelled = false;
 let running = false;
 let pipelineGen = 0;
@@ -71,7 +74,6 @@ async function findExistingTab(convUrl) {
 }
 
 async function getOrCreateTab(agent, preferredUrl) {
-  /* If agent has no conversationPattern, never use saved/preferred URLs — always open base URL */
   if (!agent.conversationPattern) {
     const existing = await findExistingTab(agent.url);
     if (existing) return existing;
@@ -79,10 +81,8 @@ async function getOrCreateTab(agent, preferredUrl) {
   }
   const savedUrl = preferredUrl || await getAgentConv(agent.id);
   const targetUrl = savedUrl || agent.url;
-
   const existing = await findExistingTab(targetUrl);
   if (existing) return existing;
-
   return openTab(targetUrl);
 }
 
@@ -163,7 +163,6 @@ async function poll(tabId, prompt, maxSec = 90) {
   let last = '';
   let stable = 0;
   let readFailures = 0;
-  let noChangeCycles = 0;
   const isCancelled = () => cancelled || multiCancelled;
   for (let i = 0; i < maxSec; i++) {
     if (isCancelled()) throw new CancelError();
@@ -177,27 +176,10 @@ async function poll(tabId, prompt, maxSec = 90) {
     readFailures = 0;
     const cur = (r?.text || '').trim();
     if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
-      stable = 0; last = ''; noChangeCycles = 0; await sleep(1000); continue;
-    }
-    if (cur === last) {
-      stable++;
-      if (stable >= 3 && cur.length > 15) return cur;
-    } else if (cur) {
-      stable = 0;
-    }
-    last = cur;
-    await sleep(1000);
-  }
-  if (last && !PLACEHOLDER_RE.test(last) && last.length > 15 && !isEcho(last, prompt)) return last;
-  return '\u26a0\ufe0f Timeout';
-}
-    readFailures = 0;
-    const cur = (r?.text || '').trim();
-    if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
       stable = 0; last = ''; await sleep(1000); continue;
     }
-    if (cur === last) { stable++; }
-    else if (cur) { stable = 0; }
+    if (cur === last) stable++;
+    else if (cur) stable = 0;
     last = cur;
     if (stable >= 3 && cur.length > 15) return cur;
     await sleep(1000);
@@ -277,13 +259,12 @@ function buildTaskPrompt(task, allTasks, allOutputs, goal) {
 
 /* ── Login check ── */
 
-// Base URLs for login verification
 const AGENT_LOGIN_URLS = {
-  deepseek: 'https://chat.deepseek.com/',
-  chatgpt: 'https://chatgpt.com/',
-  gemini: 'https://gemini.google.com/',
-  perplexity: 'https://www.perplexity.ai/',
-  huggingface: 'https://huggingface.co/chat/',
+  deepseek: DEEPSEEK_URL,
+  chatgpt: CHATGPT_URL,
+  gemini: GEMINI_URL,
+  perplexity: PERPLEXITY_URL,
+  huggingface: HUGGINGFACE_URL,
 };
 
 async function checkAgentLogin(agentId) {
@@ -295,10 +276,8 @@ async function checkAgentLogin(agentId) {
     tab = await openTab(baseUrl);
     await waitTab(tab.id);
     await sleep(3000);
-
     const r = await send(tab.id, { action: 'checkLogin' });
     const loggedIn = r?.error ? false : r?.loggedIn === true;
-
     return { loggedIn, tabId: tab.id, error: r?.error || null };
   } catch (err) {
     return { loggedIn: false, tabId: tab?.id, error: err.message };
@@ -309,7 +288,10 @@ async function runLoginCheck(selectedAgents) {
   const results = {};
   for (const id of selectedAgents) {
     const agent = getAgent(id);
-    if (!agent) { results[id] = { status: 'error', error: 'Unknown agent' }; continue; }
+    if (!agent) {
+      results[id] = { status: 'error', error: 'Unknown agent' };
+      continue;
+    }
 
     let done = false;
     while (!done) {
@@ -326,9 +308,8 @@ async function runLoginCheck(selectedAgents) {
 
       if (check.loggedIn) { done = true; continue; }
 
-      /* Not logged in — poll until user logs in, tab closes, or timeout */
       const start = Date.now();
-      const TIMEOUT = 300000; // 5 min
+      const TIMEOUT = 300000;
       let waiting = true;
 
       while (waiting && Date.now() - start < TIMEOUT) {
@@ -340,7 +321,6 @@ async function runLoginCheck(selectedAgents) {
           loginCheck: { status: 'waiting', currentAgent: id, agentName: agent.name, agents: results, error: null },
         });
 
-        /* Check if tab still exists */
         const alive = check.tabId ? await tabAlive(check.tabId) : false;
         if (!alive) {
           results[id] = { status: 'cancelled', error: 'Tab closed', agentName: agent.name };
@@ -348,9 +328,8 @@ async function runLoginCheck(selectedAgents) {
             step: 'login-check',
             loginCheck: { status: 'cancelled', currentAgent: id, agentName: agent.name, agents: results, error: `Login tab for ${agent.name} was closed. Click Retry to try again.` },
           });
-          /* Wait for retry or timeout */
           const retryStart = Date.now();
-          while (Date.now() - retryStart < 300000) {
+          while (Date.now() - retryStart < TIMEOUT) {
             if (multiCancelled) throw new CancelError();
             if (loginRetryRequested) { waiting = false; break; }
             await sleep(1000);
@@ -359,19 +338,14 @@ async function runLoginCheck(selectedAgents) {
             results[id] = { status: 'timeout', error: 'No retry', agentName: agent.name };
             return { results, allDone: false };
           }
-          waiting = false; /* Break out to the outer while loop to retry */
           break;
         }
 
-        /* Re-check login state */
         const r = await send(check.tabId, { action: 'checkLogin' });
         if (!r?.error && r?.loggedIn === true) {
           results[id] = { status: 'done', tabId: check.tabId, agentName: agent.name };
-          done = true;
-          waiting = false;
-          break;
+          done = true; waiting = false; break;
         }
-
         await sleep(3000);
       }
 
@@ -390,6 +364,5 @@ async function runLoginCheck(selectedAgents) {
     step: 'login-check',
     loginCheck: { status: 'done', currentAgent: '', agentName: '', agents: results, error: null },
   });
-
   return { results, allDone: true };
 }
