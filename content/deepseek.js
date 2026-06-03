@@ -110,18 +110,7 @@
   });
 
   async function submit() {
-    /* Try Enter key first — more reliable than button click on DeepSeek */
-    const el = getInput();
-    if (el) {
-      el.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Enter', keyCode: 13, which: 13, code: 'Enter',
-        bubbles: true, cancelable: true,
-      }));
-      console.log('[DS] Submit via Enter key');
-      /* Wait a moment, then try button if Enter didn't work */
-      await sleep(1500);
-    }
-
+    /* Try button click first — safer than Enter key which may trigger form navigation */
     const btn = await waitForEnabledBtn();
     if (btn) {
       btn.click();
@@ -129,14 +118,14 @@
       return;
     }
 
-    /* Final fallback: Enter key again on textarea */
-    const ta = getInput();
-    if (ta) {
-      ta.dispatchEvent(new KeyboardEvent('keydown', {
+    /* Fallback: Enter key (prevent default to avoid page navigation) */
+    const el = getInput();
+    if (el) {
+      el.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'Enter', keyCode: 13, which: 13, code: 'Enter',
         bubbles: true, cancelable: true,
       }));
-      console.log('[DS] Submit via Enter (fallback)');
+      console.log('[DS] Submit via Enter key (fallback)');
       return;
     }
     throw new Error('DeepSeek: could not submit');
