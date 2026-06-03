@@ -313,11 +313,62 @@ function renderOutputs(agentOutputs) {
                   data.status === 'retrying' ? '<span class="badge-retry">🔄 Retrying...</span>' :
                   data.status === 'error' ? `<span class="badge-error">❌ ${escapeHtml(data.error || 'Error')}</span>` : '';
     const text = data.output || (data.status === 'error' ? data.error || 'Error' : 'Waiting...');
+    const isLong = text.length > 1000;
+    const idSafe = id.replace(/[^a-z0-9]/gi, '');
     return `<div class="output-card ${data.status === 'streaming' ? 'streaming' : ''}">
-      <div class="header"><span class="icon">${agent.icon}</span> ${agent.name} ${badge}</div>
-      <div class="body">${escapeHtml(text)}</div>
+      <div class="header">
+        <span class="icon">${agent.icon}</span> ${agent.name} ${badge}
+        <span style="margin-left:auto;display:flex;gap:4px">
+          <button class="copy-btn" data-target="${idSafe}" style="background:none;border:1px solid var(--line);border-radius:4px;color:var(--muted);font-size:10px;padding:2px 8px;cursor:pointer">📋 Copy</button>
+          ${isLong ? `<button class="collapse-btn" data-target="${idSafe}" style="background:none;border:1px solid var(--line);border-radius:4px;color:var(--muted);font-size:10px;padding:2px 8px;cursor:pointer">📄 Show all</button>` : ''}
+        </span>
+      </div>
+      <div class="body" id="output-${idSafe}">${escapeHtml(text.length > 500 && isLong ? text.slice(0, 500) + '\n...' : text)}</div>
     </div>`;
   }).join('');
+
+  /* Copy button handlers */
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(`output-${btn.dataset.target}`);
+      if (target) {
+        navigator.clipboard.writeText(target.textContent).then(() => {
+          btn.textContent = '✅ Copied';
+          setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000);
+        }).catch(() => {
+          /* Fallback */
+          const range = document.createRange();
+          range.selectNode(target);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+          document.execCommand('copy');
+          btn.textContent = '✅ Copied';
+          setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000);
+        });
+      }
+    });
+  });
+
+  /* Collapse/expand handlers */
+  document.querySelectorAll('.collapse-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = document.getElementById(`output-${btn.dataset.target}`);
+      if (target) {
+        const fullText = window._fullOutputs?.[btn.dataset.target] || target.textContent;
+        if (!window._fullOutputs) window._fullOutputs = {};
+        if (target.dataset.expanded === 'true') {
+          target.textContent = fullText.slice(0, 500) + '\n...';
+          target.dataset.expanded = 'false';
+          btn.textContent = '📄 Show all';
+        } else {
+          window._fullOutputs[btn.dataset.target] = fullText;
+          target.textContent = fullText;
+          target.dataset.expanded = 'true';
+          btn.textContent = '📄 Collapse';
+        }
+      }
+    });
+  });
 }
 
 function renderSynthesis(text) {
@@ -470,6 +521,33 @@ function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = nul
 async function fetchState() {
   try { const s = await chrome.runtime.sendMessage({action:'multiStatus'}); if (s) render(s); } catch {}
 }
+
+/* ── File Upload ── */
+
+let uploadedFiles = [];
+
+$('file-upload')?.addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files);
+  for (const file of files) {
+    try {
+      const text = await file.text();
+      uploadedFiles.push({ name: file.name, content: text, size: file.size, type: file.type });
+    } catch {
+      /* Binary files — store as reference only */
+      uploadedFiles.push({ name: file.name, content: `[Binary file: ${file.name} (${file.size} bytes)]`, size: file.size, type: file.type });
+    }
+  }
+  $('file-count').textContent = `${uploadedFiles.length} file(s) attached`;
+  /* Append file references to goal input */
+  if (uploadedFiles.length > 0) {
+    const goal = $('goal-input');
+    const fileRefs = uploadedFiles.map(f => `\n---\nFile: ${f.name}\n\`\`\`\n${f.content.length > 2000 ? f.content.slice(0, 2000) + '\n... [truncated]' : f.content}\n\`\`\``).join('\n');
+    if (!goal.value.includes('Attached files:')) {
+      goal.value += `\n\nAttached files:${fileRefs}`;
+    }
+  }
+  e.target.value = '';
+});
 
 /* ── Run button ── */
 

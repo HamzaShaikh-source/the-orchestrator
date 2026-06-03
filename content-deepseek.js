@@ -44,6 +44,15 @@
 
   let lastInjected = '';
   let baselineAssistantCount = 0;
+  let responseChanged = false;
+
+  /* MutationObserver to detect new responses faster */
+  const observer = new MutationObserver(() => {
+    responseChanged = true;
+  });
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     (async () => {
@@ -76,6 +85,7 @@
         }
         case 'read': {
           const text = readResponse() || '';
+          responseChanged = false;
           return { text };
         }
         case 'checkLogin': {

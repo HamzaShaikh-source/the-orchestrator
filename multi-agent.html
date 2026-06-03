@@ -393,6 +393,11 @@ body {
         <div id="error-msg"></div>
         <button id="error-retry-btn">⟳ Retry</button>
       </div>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <label for="file-upload" style="font-size:11px;color:var(--muted);cursor:pointer;padding:4px 12px;border:1px solid var(--line);border-radius:6px;transition:all 0.2s">📎 Attach Files</label>
+        <input type="file" id="file-upload" multiple style="display:none">
+        <span id="file-count" style="font-size:11px;color:var(--dim)"></span>
+      </div>
       <div id="suggestions"></div>
     </div>
 

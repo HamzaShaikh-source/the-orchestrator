@@ -64,10 +64,27 @@ Output: [{ "description": "...", "type": "..." }]`;
   try {
     tasks = JSON.parse(raw);
   } catch {
+    /* Try to extract JSON array from markdown-wrapped response */
     const match = raw.match(/\[[\s\S]*\]/);
     if (match) {
       try { tasks = JSON.parse(match[0]); } catch {}
     }
+  }
+
+  /* If JSON parsing failed, try to fix common issues */
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    try {
+      /* Attempt: remove trailing commas, fix single quotes */
+      let fixed = raw
+        .replace(/,\s*\]/g, ']')
+        .replace(/,\s*\}/g, '}')
+        .replace(/'/g, '"')
+        .replace(/(\w+):/g, '"$1":');
+      const match2 = fixed.match(/\[[\s\S]*\]/);
+      if (match2) {
+        try { tasks = JSON.parse(match2[0]); } catch {}
+      }
+    } catch {}
   }
 
   if (!Array.isArray(tasks) || tasks.length === 0) {

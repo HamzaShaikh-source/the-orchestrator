@@ -2,6 +2,9 @@
 /* Load this first via importScripts */
 
 /* ── Pipeline globals ── */
+const DEEPSEEK_URL = 'https://chat.deepseek.com/';
+const CHATGPT_URL = 'https://chatgpt.com/';
+
 let cancelled = false;
 let running = false;
 let pipelineGen = 0;
@@ -154,12 +157,13 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-const PLACEHOLDER_RE = /^(thinking|searching|generating|preparing|loading)/i;
+const PLACEHOLDER_RE = /^(thinking|searching|generating|preparing|loading|analyzing)/i;
 
 async function poll(tabId, prompt, maxSec = 90) {
   let last = '';
   let stable = 0;
   let readFailures = 0;
+  let noChangeCycles = 0;
   const isCancelled = () => cancelled || multiCancelled;
   for (let i = 0; i < maxSec; i++) {
     if (isCancelled()) throw new CancelError();
@@ -170,6 +174,23 @@ async function poll(tabId, prompt, maxSec = 90) {
       await sleep(1000);
       continue;
     }
+    readFailures = 0;
+    const cur = (r?.text || '').trim();
+    if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
+      stable = 0; last = ''; noChangeCycles = 0; await sleep(1000); continue;
+    }
+    if (cur === last) {
+      stable++;
+      if (stable >= 3 && cur.length > 15) return cur;
+    } else if (cur) {
+      stable = 0;
+    }
+    last = cur;
+    await sleep(1000);
+  }
+  if (last && !PLACEHOLDER_RE.test(last) && last.length > 15 && !isEcho(last, prompt)) return last;
+  return '\u26a0\ufe0f Timeout';
+}
     readFailures = 0;
     const cur = (r?.text || '').trim();
     if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
