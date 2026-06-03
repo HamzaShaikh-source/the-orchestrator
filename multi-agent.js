@@ -402,12 +402,15 @@ $('export-btn')?.addEventListener('click', exportResults);
 function statusText(state) {
   const msgs = {
     'agent-selection': 'AI selecting agents...',
-    'planning': 'Planning tasks...',
-    'synthesis': 'Synthesizing final output...',
+    'planning': 'Brain planning tasks...',
+    'synthesis': 'Brain synthesizing final output...',
     'confirm-tasks': 'Review tasks below — Edit, then click Confirm to run',
     'done': 'Complete!',
     'error': state.error ? `Error: ${state.error}` : 'Error',
     'cancelled': 'Cancelled',
+    'brain-writing': state.brainPhase || 'Brain preparing task...',
+    'brain-executing': state.brainPhase || 'Specialist executing...',
+    'brain-reviewing': state.brainPhase || 'Brain reviewing output...',
   };
   if (msgs[state.step]) return msgs[state.step];
   if (state.step === 'login-check') return 'Checking agent login status...';
@@ -419,7 +422,7 @@ function statusText(state) {
 function render(state) {
   const dot = $('status-dot');
   const text = $('status-text');
-  const isActive = ['login-check', 'agent-selection', 'planning', 'confirm-tasks', 'running', 'feedback', 'synthesis'].includes(state.step);
+  const isActive = ['login-check', 'agent-selection', 'planning', 'confirm-tasks', 'running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'feedback', 'synthesis'].includes(state.step);
   dot.className = isActive ? 'working' : state.step === 'done' ? 'done' : state.step === 'error' || state.step === 'cancelled' ? 'error' : '';
   text.textContent = statusText(state);
 
