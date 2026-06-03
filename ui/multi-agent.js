@@ -219,8 +219,8 @@ function renderSynthesis(text) {
   const displayText = text ? text.replace(/<file\s+name=["'][^"']+["']>[\s\S]*?<\/file>/gi, '').trim() : '';
   $('#synth-section').classList.toggle('hidden', !displayText);
   $('#synth-body').textContent = displayText || '';
-  /* Also scan synthesis for file tags — only during active runs */
-  if (text && running) {
+  /* Also scan synthesis for file tags — during active runs AND at completion */
+  if (text && (running || state.step === 'done')) {
     syncFilesFromSynthesis(text);
   }
 }
@@ -312,7 +312,7 @@ function render(state) {
 
   renderTasks(state.tasks, state.step === 'confirm-tasks');
   /* Only sync files during active pipeline runs, not when viewing history */
-  if (['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(state.step)) {
+  if (['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis', 'done'].includes(state.step)) {
     syncFilesFromAI(state.agentOutputs);
   }
   renderOutputs(state.agentOutputs);
