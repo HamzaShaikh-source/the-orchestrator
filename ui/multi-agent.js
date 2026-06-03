@@ -128,12 +128,6 @@ function syncFilesFromSynthesis(synthText) {
   }
   if (changed) renderFilePanel();
 }
-  console.log(`[Files] syncFilesFromSynthesis: ${count} tags found, changed=${changed}, total files=${Object.keys(projectFiles).length}`);
-  if (changed) {
-    console.log('[Files] Calling renderFilePanel from syncFilesFromSynthesis');
-    renderFilePanel();
-  }
-}
 
 function renderFilePanel() {
   const names = Object.keys(projectFiles);
