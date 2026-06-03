@@ -17,6 +17,8 @@
       '.ds-assistant-message',
       '[class*="message-content"]',
       '[class*="ds-assistant"]',
+      '[class*="ds-turn-"]',
+      '[class*="markdown"]',
     ],
   };
 
@@ -170,6 +172,25 @@
         const t = els[i].innerText?.trim();
         if (t && t.length > 10 && !isPlaceholder(t) && !isUserMessage(t)) return t;
       }
+    }
+    /* Fallback: scan all elements with significant text */
+    const allDivs = document.querySelectorAll('div, p, section');
+    const candidates = [];
+    for (const el of allDivs) {
+      if (!el.innerText || el.innerText.length < 50) continue;
+      if (isUserMessage(el.innerText)) continue;
+      if (isPlaceholder(el.innerText)) continue;
+      if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
+      candidates.push(el);
+    }
+    if (candidates.length > 0) {
+      /* Find the last candidate that isn't a container of others */
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        const el = candidates[i];
+        const containsOther = candidates.some((other, j) => j !== i && other !== el && el.contains(other));
+        if (!containsOther) return el.innerText.trim();
+      }
+      return candidates[candidates.length - 1].innerText.trim();
     }
     return '';
   }
