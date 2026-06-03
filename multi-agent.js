@@ -269,6 +269,23 @@ function escapeAttr(str) { return String(str).replace(/&/g, '&amp;').replace(/"/
 
 /* ── Init ── */
 (async () => {
+  /* Theme toggle - moved from inline script (CSP block) */
+  const isDark = localStorage.getItem('theme') === 'dark';
+  if (isDark) document.body.classList.add('dark');
+  window.updateThemeIcon = () => {
+    const icon = document.getElementById('theme-icon');
+    if (icon) icon.textContent = document.body.classList.contains('dark') ? '☀️' : '🌙';
+  };
+  updateThemeIcon();
+  const themeBtn = document.getElementById('theme-toggle');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+      localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+      updateThemeIcon();
+    });
+  }
+
   renderAgentCards();
   await renderChatList();
   newChat();
