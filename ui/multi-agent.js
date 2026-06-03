@@ -132,11 +132,15 @@ function syncFilesFromSynthesis(synthText) {
 function renderFilePanel() {
   const names = Object.keys(projectFiles);
   if (names.length === 0) return;
-  /* Render file panel in the content area after outputs */
-  const content = document.getElementById('content');
-  if (!content) return;
+  /* Remove old panel first */
   const old = document.getElementById('file-panel-output');
   if (old) old.remove();
+
+  /* Create panel and insert after synthesis section */
+  const synthSection = document.getElementById('synth-section');
+  const content = document.getElementById('content');
+  if (!content) return;
+
   const panel = document.createElement('div');
   panel.id = 'file-panel-output';
   panel.style.cssText = 'margin-top:16px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)';
@@ -150,7 +154,7 @@ function renderFilePanel() {
         <span style="font-size:1.2rem">${icon}</span>
         <div style="flex:1;min-width:0">
           <div style="font-family:monospace;font-size:0.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis">${escapeHtml(n)}</div>
-          <div style="font-size:0.65rem;color:var(--text-muted)">${(projectFiles[n].length / 1024).toFixed(1)} KB · ${projectFiles[n].split('\n').length} lines</div>
+          <div style="font-size:0.65rem;color:var(--text-muted)">${(projectFiles[n].length / 1024).toFixed(1)} KB · ${(projectFiles[n].match(/\n/g) || []).length + 1} lines</div>
         </div>
         <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">📋</button>
       </div>`;
@@ -158,10 +162,15 @@ function renderFilePanel() {
     </div>
     <div style="margin-top:16px;display:flex;gap:10px">
       <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download All (.zip)</button>
-      <button id="preview-btn" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:40px;padding:10px 24px;font-weight:500;cursor:pointer;font-size:0.85rem">👁 Preview</button>
     </div>
   `;
-  content.appendChild(panel);
+
+  /* Insert after synth section or at end of content */
+  if (synthSection && synthSection.nextSibling) {
+    content.insertBefore(panel, synthSection.nextSibling);
+  } else {
+    content.appendChild(panel);
+  }
 
   /* Wire up copy buttons */
   panel.querySelectorAll('.copy-file').forEach(btn => {
@@ -215,7 +224,12 @@ function renderSynthesis(text) {
   $('#synth-section').classList.toggle('hidden', !text);
   $('#synth-body').textContent = text || '';
   /* Also scan synthesis for file tags */
-  syncFilesFromSynthesis(text);
+  if (text) {
+    const before = Object.keys(projectFiles).length;
+    syncFilesFromSynthesis(text);
+    const after = Object.keys(projectFiles).length;
+    if (after > before) console.log(`[Files] Found ${after - before} new files from synthesis`);
+  }
 }
 
 /* ── Export ── */
