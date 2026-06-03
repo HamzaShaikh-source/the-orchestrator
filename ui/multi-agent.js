@@ -165,12 +165,8 @@ function renderFilePanel() {
     </div>
   `;
 
-  /* Insert after synth section or at end of content */
-  if (synthSection && synthSection.nextSibling) {
-    content.insertBefore(panel, synthSection.nextSibling);
-  } else {
-    content.appendChild(panel);
-  }
+  /* Insert after synthesis at the end of content */
+  content.appendChild(panel);
 
   /* Wire up copy buttons */
   panel.querySelectorAll('.copy-file').forEach(btn => {
