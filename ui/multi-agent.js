@@ -118,17 +118,16 @@ function syncFilesFromAI(agentOutputs) {
 
 /* Also scan synthesis text for file tags */
 function syncFilesFromSynthesis(synthText) {
-  if (!synthText) { console.log('[Files] No synthesis text to scan'); return; }
+  if (!synthText) return;
   let changed = false;
   const FILE_RE = /<file\s+name=["']([^"']+)["']>([\s\S]*?)<\/file>/gi;
   let match;
-  let count = 0;
   while ((match = FILE_RE.exec(synthText))) {
-    count++;
     const name = match[1].trim(), content = match[2].trim();
-    console.log(`[Files] Found tag: name="${name}" content.length=${content.length}`);
     if (projectFiles[name] !== content) { projectFiles[name] = content; changed = true; }
   }
+  if (changed) renderFilePanel();
+}
   console.log(`[Files] syncFilesFromSynthesis: ${count} tags found, changed=${changed}, total files=${Object.keys(projectFiles).length}`);
   if (changed) {
     console.log('[Files] Calling renderFilePanel from syncFilesFromSynthesis');
