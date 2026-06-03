@@ -110,20 +110,33 @@
   });
 
   async function submit() {
+    /* Try Enter key first — more reliable than button click on DeepSeek */
+    const el = getInput();
+    if (el) {
+      el.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', keyCode: 13, which: 13, code: 'Enter',
+        bubbles: true, cancelable: true,
+      }));
+      console.log('[DS] Submit via Enter key');
+      /* Wait a moment, then try button if Enter didn't work */
+      await sleep(1500);
+    }
+
     const btn = await waitForEnabledBtn();
     if (btn) {
       btn.click();
       console.log('[DS] Submit via button click');
       return;
     }
-    /* Fallback: Enter key */
-    const el = getInput();
-    if (el) {
-      el.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'Enter', keyCode: 13, which: 13,
+
+    /* Final fallback: Enter key again on textarea */
+    const ta = getInput();
+    if (ta) {
+      ta.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', keyCode: 13, which: 13, code: 'Enter',
         bubbles: true, cancelable: true,
       }));
-      console.log('[DS] Submit via Enter key');
+      console.log('[DS] Submit via Enter (fallback)');
       return;
     }
     throw new Error('DeepSeek: could not submit');
@@ -162,10 +175,13 @@
 
   function isPlaceholder(text) {
     const t = text.trim().toLowerCase();
-    if (t.length < 15) return true;
+    /* Short text might be streaming output — don't filter aggressively */
+    if (t.length < 3) return true;
     for (const p of PLACEHOLDER_PATTERNS) {
       if (p.test(t)) return true;
     }
+    /* Common ChatGPT/DALL-E placeholders */
+    if (t === 'edit' || t === 'generating...' || t === 'thinking...') return true;
     return false;
   }
 
@@ -180,21 +196,20 @@
       for (let i = els.length - 1; i >= 0; i--) {
         if (i < baselineAssistantCount) break;
         const t = els[i].innerText?.trim();
-        if (t && t.length > 10 && !isPlaceholder(t) && !isUserMessage(t)) return t;
+        if (t && !isPlaceholder(t) && !isUserMessage(t)) return t;
       }
     }
-    /* Fallback: scan all elements with significant text */
+    /* Fallback: scan all elements with significant text (low threshold for streaming) */
     const allDivs = document.querySelectorAll('div, p, section');
     const candidates = [];
     for (const el of allDivs) {
-      if (!el.innerText || el.innerText.length < 50) continue;
+      if (!el.innerText || el.innerText.length < 10) continue;
       if (isUserMessage(el.innerText)) continue;
       if (isPlaceholder(el.innerText)) continue;
       if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
       candidates.push(el);
     }
     if (candidates.length > 0) {
-      /* Find the last candidate that isn't a container of others */
       for (let i = candidates.length - 1; i >= 0; i--) {
         const el = candidates[i];
         const containsOther = candidates.some((other, j) => j !== i && other !== el && el.contains(other));

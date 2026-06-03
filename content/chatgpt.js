@@ -55,10 +55,14 @@
           const responses = document.querySelectorAll(S.response.join(','));
           for (let i = responses.length - 1; i >= baselineCount; i--) {
             const t = responses[i].innerText?.trim();
-            if (t && t.length > 10 && !t.includes(lastInjected)) { text = t; break; }
-            /* Check for generated images */
-            const img = responses[i].querySelector('img[alt*="Generated"]');
-            if (img) { text = img.getAttribute('alt') || ''; break; }
+            /* Skip short/placeholder responses like "Edit" (DALL-E placeholder) */
+            if (!t || t.length < 5 || t === 'Edit' || t === 'edit') {
+              /* Check for generated images */
+              const img = responses[i].querySelector('img[alt*="Generated"]');
+              if (img) { text = img.getAttribute('alt') || ''; break; }
+              continue;
+            }
+            if (t && !t.includes(lastInjected)) { text = t; break; }
           }
           return { text };
         }
