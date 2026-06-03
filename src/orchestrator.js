@@ -512,7 +512,33 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     const parts = completedOutputs.map(([id, d]) => `=== ${getAgent(id)?.name || id} ===\n${d.output}`).join('\n\n');
 
     if (parts) {
-      const synthPrompt = `You are the BRAIN. Synthesize the following outputs from your specialist team into a single coherent final response. Combine insights and produce a polished result.\n\nOriginal Goal: ${goal}\n\nSpecialist Outputs:\n${parts}\n\nFinal synthesized output:`;
+      /* Brain generates the actual implementation files based on all specialist outputs */
+      const synthPrompt = `You are the BRAIN. Your specialists have produced architecture, design, and content specifications for a project.
+
+Original Goal: ${goal}
+
+Specialist Outputs:
+${parts}
+
+Your job: Based on ALL the specialist outputs above, generate the ACTUAL implementation files. Produce complete, working code files.
+
+Wrap each file in <file name="filename.ext"> and </file> tags.
+
+Example format:
+<file name="index.html">
+<!DOCTYPE html>
+<html>
+...
+</html>
+</file>
+<file name="style.css">
+/* CSS */
+</file>
+<file name="script.js">
+// JS
+</file>
+
+Generate ALL the files needed to make this project work. Make them complete, production-ready, and based on the specifications from your specialists.`;
 
       const synthTab = usedTabs[BRAIN_ID];
       if (synthTab && await tabAlive(synthTab.id) && await waitForContentScript(synthTab.id)) {
@@ -521,7 +547,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
           await sleep(1000);
           r = await send(synthTab.id, { action: 'submit' });
           if (!r?.error) {
-            const raw = await pollWithProgress(synthTab.id, synthPrompt, 60, BRAIN_ID, agentOutputs);
+            const raw = await pollWithProgress(synthTab.id, synthPrompt, 90, BRAIN_ID, agentOutputs);
             if (raw && raw !== '\u26a0\ufe0f Timeout') finalSynthesis = raw;
           }
         }
