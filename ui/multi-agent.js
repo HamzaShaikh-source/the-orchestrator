@@ -331,6 +331,12 @@ function render(state) {
   if (['done', 'error', 'cancelled'].includes(state.step)) {
     running = false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
     stopPoll();
+    /* Save project files to chat record */
+    if (currentChatId && Object.keys(projectFiles).length > 0) {
+      getChat(currentChatId).then(chat => {
+        if (chat) { chat.projectFiles = { ...projectFiles }; saveChat(chat); }
+      });
+    }
     if (state.step === 'done') showToast('✅ Pipeline complete!');
     else if (state.step === 'error') showToast('❌ Pipeline failed: ' + (state.error || ''), 'error');
   }
