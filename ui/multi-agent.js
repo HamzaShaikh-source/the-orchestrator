@@ -138,19 +138,14 @@ function syncFilesFromSynthesis(synthText) {
 
 function renderFilePanel() {
   const names = Object.keys(projectFiles);
-  console.log(`[Files] renderFilePanel called. Files: ${names.length}`, names);
-  if (names.length === 0) { console.log('[Files] No files, returning'); return; }
+  if (names.length === 0) return;
   
-  /* Remove old panel first */
   const old = document.getElementById('file-panel-output');
-  if (old) { console.log('[Files] Removing old panel'); old.remove(); }
+  if (old) old.remove();
 
-  /* Get content element */
   const content = document.getElementById('content');
-  if (!content) { console.log('[Files] ERROR: #content not found!'); return; }
-  console.log('[Files] #content found, children:', content.children.length);
+  if (!content) return;
 
-  /* Create panel */
   const panel = document.createElement('div');
   panel.id = 'file-panel-output';
   panel.style.cssText = 'margin-top:16px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)';
@@ -174,11 +169,6 @@ function renderFilePanel() {
       <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download All (.zip)</button>
     </div>
   `;
-
-  content.appendChild(panel);
-  console.log('[Files] Panel appended to #content. Content now has', content.children.length, 'children');
-  console.log('[Files] Panel innerHTML length:', panel.innerHTML.length);
-  console.log('[Files] download-zip-btn exists:', !!document.getElementById('download-zip-btn'));
 
   /* Wire up copy buttons */
   panel.querySelectorAll('.copy-file').forEach(btn => {
