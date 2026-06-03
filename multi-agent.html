@@ -340,11 +340,21 @@ body {
   .file-panel { grid-template-columns: 1fr; }
   .file-tree { max-height: 120px; border-right: none; border-bottom: 1px solid var(--line); }
 }
+
+/* ── Loading & App states ── */
+#loading-init {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); z-index: 2000;
+  font-size: 14px; color: var(--muted);
+}
+#loading-init.hidden { display: none !important; }
+#app-content.hidden { display: none !important; }
 </style>
 </head>
 <body>
 
-<div id="loading-init" style="position:fixed;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:2000;font-size:14px;color:var(--muted)">Loading...</div>
+<div id="loading-init">Loading...</div>
 
 <div id="app-content" class="hidden">
 <div class="layout">
