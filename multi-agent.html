@@ -298,7 +298,7 @@
     .status-dot.working { background: var(--warning); animation: pulse 1s infinite; box-shadow: 0 0 6px var(--warning); }
     .status-dot.done { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
     .status-dot.error { background: var(--danger); }
-    @keyframes pulse { 0% { opacity: 0.5; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1.2); } }
+    @keyframes pulse { 0% { opacity: 0.6; transform: scale(0.95); box-shadow: 0 0 0 0 var(--accent-glow); } 50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 12px 4px var(--accent-glow); } 100% { opacity: 0.6; transform: scale(0.95); box-shadow: 0 0 0 0 var(--accent-glow); } }
 
     .content { flex: 1; overflow-y: auto; padding: 28px; display: flex; flex-direction: column; gap: 32px; }
     .section-title { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 16px; }
@@ -324,7 +324,7 @@
     .copy-output:hover { border-color: var(--accent); background: var(--accent-light); }
 
     .synthesis-card { background: linear-gradient(145deg, var(--surface), var(--bg-glass)); border: 1px solid var(--accent); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow-lg); }
-    #confirm-bar { display: flex; gap: 16px; margin-top: 20px; justify-content: flex-end; }
+    #confirm-bar { display: none !important; gap: 16px; margin-top: 20px; justify-content: flex-end; }
 
     .toast {
       position: fixed; bottom: 30px; right: 30px;
@@ -361,7 +361,7 @@
 
   <div class="main">
     <div class="top-bar">
-      <button class="theme-toggle" id="theme-toggle"><span>🌙</span> <span>Dark / Light</span></button>
+      <button class="theme-toggle" id="theme-toggle"><span id="theme-icon">🌙</span> <span>Dark / Light</span></button>
     </div>
 
     <div class="agent-strip" id="agent-strip"></div>
@@ -413,11 +413,17 @@
   (function() {
     const isDark = localStorage.getItem('theme') === 'dark';
     if (isDark) document.body.classList.add('dark');
+    const updateIcon = () => {
+      const icon = document.getElementById('theme-icon');
+      if (icon) icon.textContent = document.body.classList.contains('dark') ? '☀️' : '🌙';
+    };
+    updateIcon();
     const btn = document.getElementById('theme-toggle');
     if (btn) {
       btn.addEventListener('click', () => {
         document.body.classList.toggle('dark');
         localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+        updateIcon();
       });
     }
   })();

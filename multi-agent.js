@@ -1,4 +1,4 @@
-const $ = id => document.getElementById(id);
+const $ = id => document.getElementById(id.replace('#', ''));
 let pollTimer = null, running = false, currentChatId = null, selectedAgents = [];
 let projectFiles = {}, attachedFiles = [];
 
@@ -272,5 +272,4 @@ function escapeAttr(str) { return String(str).replace(/&/g, '&amp;').replace(/"/
   renderAgentCards();
   await renderChatList();
   newChat();
-  showToast('Ready – select agents and enter a goal');
 })();
