@@ -326,7 +326,96 @@
     .synthesis-card { background: linear-gradient(145deg, var(--surface), var(--bg-glass)); border: 1px solid var(--accent); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow-lg); }
     #confirm-bar { gap: 16px; margin-top: 20px; justify-content: flex-end; }
 
-    /* ── Task Tiles (grid) ── */
+    /* ── Pipeline Running Display ── */
+    #pipeline-display {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      text-align: center;
+      min-height: 300px;
+    }
+    #pipeline-display.active { display: flex; }
+    #pd-agent-icon { font-size: 4rem; margin-bottom: 16px; animation: pd-pulse 2s ease-in-out infinite; }
+    @keyframes pd-pulse {
+      0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(16,163,127,0)); }
+      50% { transform: scale(1.1); filter: drop-shadow(0 0 24px rgba(16,163,127,0.4)); }
+      100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(16,163,127,0)); }
+    }
+    #pd-agent-name { font-size: 1.2rem; font-weight: 600; margin-bottom: 8px; }
+    #pd-action {
+      font-size: 1rem; color: var(--text-secondary);
+      display: flex; align-items: center; gap: 4px;
+    }
+    #pd-action::after {
+      content: '';
+      display: inline-block;
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-left: 4px;
+      animation: pd-dot-bounce 1.2s ease-in-out infinite;
+    }
+    .pd-dots {
+      display: flex; gap: 6px; margin-left: 4px;
+    }
+    .pd-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+      animation: pd-float 1.5s ease-in-out infinite;
+    }
+    .pd-dot:nth-child(2) { animation-delay: 0.3s; }
+    .pd-dot:nth-child(3) { animation-delay: 0.6s; }
+    @keyframes pd-float {
+      0%, 100% { transform: translateY(0); opacity: 0.3; }
+      50% { transform: translateY(-8px); opacity: 1; }
+    }
+    @keyframes pd-dot-bounce {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.5); }
+    }
+    #pd-progress {
+      margin-top: 20px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    #pd-progress-bar {
+      margin-top: 8px;
+      width: 200px; height: 4px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #pd-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #3b82f6);
+      border-radius: 4px;
+      transition: width 0.5s ease;
+      width: 0%;
+    }
+    /* Floating background dots */
+    #pd-bg-dots {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .pd-bg-dot {
+      position: absolute;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0.08;
+      animation: pd-bg-float 8s ease-in-out infinite;
+    }
+    @keyframes pd-bg-float {
+      0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+      10% { opacity: 0.08; }
+      90% { opacity: 0.08; }
+      100% { transform: translateY(-100px) rotate(720deg); opacity: 0; }
+    }
     .task-tile {
       background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
       padding: 16px; transition: var(--transition);
@@ -411,6 +500,25 @@
     </div>
 
     <div class="content">
+      <!-- Pipeline Running Display -->
+      <div id="pipeline-display">
+        <div id="pd-bg-dots"></div>
+        <div id="pd-agent-icon">🧠</div>
+        <div id="pd-agent-name">DeepSeek</div>
+        <div id="pd-action">
+          <span id="pd-action-text">Generating code</span>
+          <span class="pd-dots">
+            <span class="pd-dot"></span>
+            <span class="pd-dot"></span>
+            <span class="pd-dot"></span>
+          </span>
+        </div>
+        <div id="pd-progress">
+          <span id="pd-progress-text">Task 2 of 5</span>
+          <div id="pd-progress-bar"><div id="pd-progress-fill"></div></div>
+        </div>
+      </div>
+
       <div id="tasks-section" class="hidden">
         <div class="section-title">Task Breakdown</div>
         <div id="task-list"></div>

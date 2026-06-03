@@ -250,6 +250,59 @@ function render(state) {
   const active = ['login-check', 'planning', 'confirm-tasks', 'running', 'synthesis'].includes(state.step);
   dot.className = `status-dot ${active ? 'working' : state.step==='done'?'done':state.step==='error'?'error':''}`;
   $('#status-text').textContent = statusText(state);
+
+  /* Pipeline running display */
+  const pd = $('#pipeline-display');
+  const isRunning = ['running', 'synthesis', 'brain-writing', 'brain-executing', 'brain-reviewing'].includes(state.step);
+  if (isRunning) {
+    pd.classList.add('active');
+    /* Update agent icon and action */
+    const brainPhase = state.brainPhase || '';
+    let icon = '🧠', name = 'Brain', action = 'Working';
+    if (brainPhase.includes('DeepSeek')) { icon = '🧠'; name = 'DeepSeek'; }
+    else if (brainPhase.includes('ChatGPT')) { icon = '💬'; name = 'ChatGPT'; }
+    else if (brainPhase.includes('Gemini')) { icon = '✨'; name = 'Gemini'; }
+    else if (brainPhase.includes('Perplexity')) { icon = '🔍'; name = 'Perplexity'; }
+    else if (brainPhase.includes('Hugging')) { icon = '🤗'; name = 'HuggingFace'; }
+
+    const phase = state.step === 'brain-writing' ? 'Brain is writing task assignment' :
+                  state.step === 'brain-executing' ? 'Executing task' :
+                  state.step === 'brain-reviewing' ? 'Brain is reviewing output' :
+                  state.step === 'synthesis' ? 'Brain is synthesizing results' :
+                  brainPhase || 'Working';
+    action = phase;
+
+    $('#pd-agent-icon').textContent = icon;
+    $('#pd-agent-name').textContent = name;
+    $('#pd-action-text').textContent = action;
+    const total = state.tasks?.length || 0;
+    const done = state.tasks?.filter(t => t.status === 'done' || t.status === 'error').length || 0;
+    $('#pd-progress-text').textContent = `Task ${done} of ${total}`;
+    $('#pd-progress-fill').style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
+
+    /* Generate background floating dots */
+    if (!pd._dots) {
+      pd._dots = true;
+      const bg = document.getElementById('pd-bg-dots');
+      if (bg) {
+        for (let i = 0; i < 12; i++) {
+          const dot = document.createElement('div');
+          dot.className = 'pd-bg-dot';
+          dot.style.left = `${Math.random() * 100}%`;
+          dot.style.animationDelay = `${Math.random() * 8}s`;
+          dot.style.animationDuration = `${6 + Math.random() * 6}s`;
+          dot.style.width = dot.style.height = `${4 + Math.random() * 8}px`;
+          bg.appendChild(dot);
+        }
+      }
+    }
+  } else {
+    pd.classList.remove('active');
+    pd._dots = false;
+    const bg = document.getElementById('pd-bg-dots');
+    if (bg) bg.innerHTML = '';
+  }
+
   renderTasks(state.tasks, state.step === 'confirm-tasks');
   syncFilesFromAI(state.agentOutputs);
   renderOutputs(state.agentOutputs);
@@ -259,6 +312,8 @@ function render(state) {
   if (['done', 'error', 'cancelled'].includes(state.step)) {
     running = false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
     stopPoll();
+    if (state.step === 'done') showToast('✅ Pipeline complete!');
+    else if (state.step === 'error') showToast('❌ Pipeline failed: ' + (state.error || ''), 'error');
   }
 }
 
