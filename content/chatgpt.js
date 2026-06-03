@@ -72,6 +72,16 @@
           return { loggedIn: !hasLogin };
         }
 
+        case 'isGenerating': {
+          /* ChatGPT: check if send button is disabled (generating) or stop button visible */
+          const sendBtn = document.querySelector('button[data-testid="send-button"]');
+          const stopBtn = document.querySelector('[class*="stop"], button[aria-label*="Stop"]');
+          if (stopBtn) return { generating: true };
+          if (sendBtn && sendBtn.disabled) return { generating: true };
+          if (sendBtn && !sendBtn.disabled) return { generating: false };
+          return { generating: false };
+        }
+
         default:
           throw new Error('Unknown action: ' + msg.action);
       }

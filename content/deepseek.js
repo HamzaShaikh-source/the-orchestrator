@@ -97,6 +97,23 @@
           }
           return { loggedIn: true };
         }
+        case 'isGenerating': {
+          /* Check if DeepSeek is still generating: send button disabled, or stop button visible */
+          const sendBtn = document.querySelector('div.ds-button--primary.ds-button--filled');
+          const stopIndicator = document.querySelector('[class*="stop"], [class*="generating"]');
+          const textareaEmpty = getInput()?.value?.length === 0;
+          /* If send button is disabled or stop indicator visible, still generating */
+          if (sendBtn?.className?.includes('disabled') || sendBtn?.hasAttribute('disabled') || stopIndicator) {
+            return { generating: true };
+          }
+          /* If send button is enabled and textarea is empty (submitted), probably done */
+          if (sendBtn && !sendBtn.className.includes('disabled') && textareaEmpty) {
+            return { generating: false };
+          }
+          /* Fallback: if there's text in the textarea, user might still be typing */
+          if (!textareaEmpty) return { generating: true };
+          return { generating: false };
+        }
         default:
           throw new Error('Unknown action: ' + msg.action);
       }

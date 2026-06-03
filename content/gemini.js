@@ -65,6 +65,11 @@
           }
           return { loggedIn: true };
         }
+        case 'isGenerating': {
+          const stopBtn = document.querySelector('button[aria-label*="Stop"]');
+          if (stopBtn) return { generating: true };
+          return { generating: false };
+        }
         default:
           throw new Error('Unknown action: ' + msg.action);
       }

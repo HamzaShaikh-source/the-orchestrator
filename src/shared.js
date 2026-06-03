@@ -167,6 +167,11 @@ async function poll(tabId, prompt, maxSec = 120) {
   const isCancelled = () => cancelled || multiCancelled;
   for (let i = 0; i < maxSec; i++) {
     if (isCancelled()) throw new CancelError();
+
+    /* Check if the AI is still generating before reading */
+    const genCheck = await send(tabId, { action: 'isGenerating' });
+    const isGenerating = genCheck?.generating === true;
+
     const r = await send(tabId, { action: 'read' });
     if (r?.error) {
       readFailures++;
@@ -176,9 +181,11 @@ async function poll(tabId, prompt, maxSec = 120) {
     }
     readFailures = 0;
     const cur = (r?.text || '').trim();
+
     if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
       stable = 0; last = ''; await sleep(1000); continue;
     }
+
     /* Text is growing — still streaming, don't count as stable */
     if (cur.length > maxLen) {
       maxLen = cur.length;
@@ -186,9 +193,14 @@ async function poll(tabId, prompt, maxSec = 120) {
       last = cur;
     } else if (cur === last) {
       stable++;
-      /* Longer texts need more stability to confirm completion */
-      const required = cur.length > 1000 ? 8 : cur.length > 200 ? 5 : 3;
-      if (stable >= required && cur.length > 10) return cur;
+      /* Only return if AI is NOT still generating */
+      if (!isGenerating) {
+        const required = cur.length > 1000 ? 8 : cur.length > 200 ? 5 : 3;
+        if (stable >= required && cur.length > 10) return cur;
+      } else {
+        /* AI is still generating — reset stable count to avoid false completion */
+        stable = Math.min(stable, 2);
+      }
     } else {
       stable = 0;
       last = cur;
