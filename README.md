@@ -11,11 +11,16 @@ A Chrome extension that orchestrates **multiple AI agents** (DeepSeek, ChatGPT, 
 ## Quick Start
 
 1. Open Chrome → `chrome://extensions`
-2. Enable **Developer mode** → click **Load unpacked** → select this folder
-3. Pin the extension, then open `chrome-extension://<extension-id>/multi-agent.html`
-4. Type a goal like *"Create a landing page with CSS animations"* → click **▶ Run**
+2. Enable **Developer mode** → click **Load unpacked** → select the `the-orchestrator` folder
+3. Click the extension icon in the toolbar, or open the dashboard:
+   ```
+   chrome-extension://<extension-id>/ui/multi-agent.html
+   ```
+   (Find your extension ID on `chrome://extensions` under "The Orchestrator")
+4. Select which AI agents to use by clicking their icons
+5. Type a goal like *"Create a landing page with CSS animations"* → click **▶ Run Pipeline**
 
-**Required:** Free accounts for the AI services you want to use (DeepSeek, ChatGPT, etc.). The login check step will verify each one before the pipeline starts.
+**Required:** Free accounts for the AI services you want to use (DeepSeek, ChatGPT, etc.).
 
 ---
 
@@ -53,24 +58,36 @@ See [`index.html`](./index.html) for the complete architectural vision, includin
 ## Project Structure
 
 ```
-├── index.html               # Full architecture blueprint & documentation
 ├── manifest.json            # Chrome extension manifest
-├── background.js            # Service worker — tab management, messaging
-├── shared.js                # Agent definitions, tab utilities, chat storage, login check
-├── orchestrator.js          # Pipeline orchestration (select → login → plan → route → run → feedback → synthesize)
-├── task-planner.js          # LLM-powered task decomposition
-├── task-router.js           # Assigns tasks to best-fit agents
-├── content-chatgpt.js       # Content script for ChatGPT
-├── content-deepseek.js      # Content script for DeepSeek
-├── content-gemini.js        # Content script for Gemini
-├── content-perplexity.js    # Content script for Perplexity
-├── content-huggingface.js   # Content script for HuggingFace
-├── multi-agent.html/js      # Orchestration dashboard UI
-├── dashboard.html/js        # Alternative dashboard
-├── popup.html/js            # Quick popup UI
-├── server.js                # HTTP server for zip download
-├── agents.js                # Agent capability definitions
-└── README.md
+├── multi-agent.html         # Redirects → ui/multi-agent.html
+├── dashboard.html           # Redirects → ui/dashboard.html
+│
+├── src/                     # Core source code
+│   ├── background.js        # Service worker — tab management, messaging
+│   ├── shared.js            # Utilities, login check, tab management
+│   ├── orchestrator.js      # Brain-centered pipeline orchestration
+│   ├── agents.js            # Agent definitions, capability scores, chat history
+│   ├── task-planner.js      # LLM-powered task decomposition
+│   ├── task-router.js       # Assigns tasks to best-fit agents
+│   └── server.js            # HTTP server for zip download
+│
+├── content/                 # Content scripts (one per AI service)
+│   ├── deepseek.js
+│   ├── chatgpt.js
+│   ├── gemini.js
+│   ├── perplexity.js
+│   └── huggingface.js
+│
+├── ui/                      # Frontend pages
+│   ├── multi-agent.html     # Main orchestration dashboard
+│   ├── multi-agent.js
+│   ├── dashboard.html/js    # Alternative dashboard
+│   ├── popup.html/js        # Extension popup
+│
+├── icons/                   # Extension icons
+├── docs/                    # Architecture documentation
+├── README.md
+└── LICENSE
 ```
 
 ---
