@@ -98,6 +98,83 @@ function syncFilesFromAI(agentOutputs) {
       if (projectFiles[name] !== content) { projectFiles[name] = content; changed = true; }
     }
   }
+  if (changed) renderFilePanel();
+}
+
+function renderFilePanel() {
+  const names = Object.keys(projectFiles);
+  if (names.length === 0) return;
+  /* Render file badges after outputs section */
+  const container = document.getElementById('outputs-list');
+  if (!container) return;
+  /* Remove old file panel if exists */
+  const old = document.getElementById('file-panel-output');
+  if (old) old.remove();
+  const panel = document.createElement('div');
+  panel.id = 'file-panel-output';
+  panel.style.cssText = 'margin-top:16px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)';
+  panel.innerHTML = `
+    <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:12px">Generated Files</div>
+    ${names.map(n => {
+      const ext = n.split('.').pop();
+      const icon = ext === 'html' ? '🌐' : ext === 'css' ? '🎨' : ext === 'js' ? '⚡' : '📄';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface-hover);border-radius:var(--radius-sm);margin-bottom:6px">
+        <span>${icon}</span>
+        <span style="flex:1;font-family:monospace;font-size:0.85rem">${escapeHtml(n)}</span>
+        <span style="color:var(--text-muted);font-size:0.75rem">${(projectFiles[n].length / 1024).toFixed(1)} KB</span>
+        <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:2px 10px;font-size:0.7rem;cursor:pointer">📋</button>
+      </div>`;
+    }).join('')}
+    <button id="download-zip-btn" style="margin-top:12px;background:var(--accent);color:white;border:none;border-radius:40px;padding:8px 20px;font-weight:600;cursor:pointer;font-size:0.8rem">⬇ Download All (.zip)</button>
+  `;
+  container.appendChild(panel);
+
+  /* Wire up copy buttons */
+  panel.querySelectorAll('.copy-file').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const content = projectFiles[btn.dataset.name] || '';
+      navigator.clipboard.writeText(content).then(() => showToast('Copied ' + btn.dataset.name));
+    });
+  });
+
+  /* Wire up download button */
+  const dlBtn = document.getElementById('download-zip-btn');
+  if (dlBtn) {
+    dlBtn.addEventListener('click', () => {
+      const files = Object.entries(projectFiles).map(([name, content]) => ({ name, content }));
+      if (files.length === 0) return;
+      /* Simple ZIP using stored method */
+      const encoder = new TextEncoder();
+      const local = [], central = [];
+      let off = 0;
+      for (const f of files) {
+        const d = encoder.encode(f.content), n = encoder.encode(f.name);
+        const crc = (d => { let c = 0xffffffff; for (let i = 0; i < d.length; i++) { c ^= d[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xedb88320 : 0); } return (c ^ 0xffffffff) >>> 0; })(d);
+        const sz = d.length;
+        const lh = new ArrayBuffer(30 + n.length); const dv = new DataView(lh);
+        dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true);
+        dv.setUint32(14, crc, true); dv.setUint32(18, sz, true); dv.setUint32(22, sz, true);
+        dv.setUint16(26, n.length, true); new Uint8Array(lh, 30).set(n);
+        local.push(new Uint8Array(lh), d);
+        const ch = new ArrayBuffer(46 + n.length); const cdv = new DataView(ch);
+        cdv.setUint32(0, 0x02014b50, true); cdv.setUint16(4, 20, true);
+        cdv.setUint32(14, crc, true); cdv.setUint32(18, sz, true); cdv.setUint32(22, sz, true);
+        cdv.setUint16(26, n.length, true); cdv.setUint32(42, off, true);
+        new Uint8Array(ch, 46).set(n); central.push(new Uint8Array(ch));
+        off += 30 + n.length + sz;
+      }
+      const eocd = new ArrayBuffer(22); const ev = new DataView(eocd);
+      ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true);
+      ev.setUint32(12, central.reduce((s,a) => s + a.length, 0), true); ev.setUint32(16, off, true);
+      const merged = new Uint8Array([...local, ...central, new Uint8Array(eocd)].reduce((t,a) => t + a.length, 0));
+      let pos = 0;
+      for (const c of [...local, ...central, new Uint8Array(eocd)]) { merged.set(c, pos); pos += c.length; }
+      const blob = new Blob([merged], {type:'application/zip'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'project-files.zip'; a.click();
+      URL.revokeObjectURL(url); showToast('Downloaded project-files.zip');
+    });
+  }
 }
 
 function renderSynthesis(text) {
