@@ -219,12 +219,9 @@ function renderSynthesis(text) {
   const displayText = text ? text.replace(/<file\s+name=["'][^"']+["']>[\s\S]*?<\/file>/gi, '').trim() : '';
   $('#synth-section').classList.toggle('hidden', !displayText);
   $('#synth-body').textContent = displayText || '';
-  /* Also scan synthesis for file tags */
-  if (text) {
-    const before = Object.keys(projectFiles).length;
+  /* Also scan synthesis for file tags — only during active runs */
+  if (text && running) {
     syncFilesFromSynthesis(text);
-    const after = Object.keys(projectFiles).length;
-    if (after > before) console.log(`[Files] Found ${after - before} new files from synthesis`);
   }
 }
 
@@ -314,7 +311,10 @@ function render(state) {
   }
 
   renderTasks(state.tasks, state.step === 'confirm-tasks');
-  syncFilesFromAI(state.agentOutputs);
+  /* Only sync files during active pipeline runs, not when viewing history */
+  if (['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(state.step)) {
+    syncFilesFromAI(state.agentOutputs);
+  }
   renderOutputs(state.agentOutputs);
   renderSynthesis(state.synthesis);
   /* Always render file panel if files exist */
@@ -391,8 +391,12 @@ async function selectChat(id) {
     renderTasks(chat.results.tasks);
     renderOutputs(chat.results.agentOutputs);
     renderSynthesis(chat.results.synthesis);
+    /* Restore this chat's files — don't let sync add more */
+    if (chat.projectFiles) {
+      projectFiles = { ...chat.projectFiles };
+      renderFilePanel();
+    }
   }
-  if (chat.projectFiles) projectFiles = chat.projectFiles;
   if (chat.selectedAgents) highlightAgents(chat.selectedAgents);
   renderChatList();
 }
