@@ -68,7 +68,13 @@ async function findExistingTab(convUrl) {
 }
 
 async function getOrCreateTab(agent, preferredUrl) {
-  const savedUrl = preferredUrl || (agent.conversationPattern ? await getAgentConv(agent.id) : null);
+  /* If agent has no conversationPattern, never use saved/preferred URLs — always open base URL */
+  if (!agent.conversationPattern) {
+    const existing = await findExistingTab(agent.url);
+    if (existing) return existing;
+    return openTab(agent.url);
+  }
+  const savedUrl = preferredUrl || await getAgentConv(agent.id);
   const targetUrl = savedUrl || agent.url;
 
   const existing = await findExistingTab(targetUrl);
