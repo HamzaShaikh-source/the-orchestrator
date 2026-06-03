@@ -49,13 +49,13 @@ function renderTasks(tasks, editable) {
   if (!tasks?.length) { $('#tasks-section').classList.add('hidden'); return; }
   $('#tasks-section').classList.remove('hidden');
   container.innerHTML = tasks.map((t, i) => `
-    <div class="task-card">
-      <div class="task-header">
-        <span style="font-weight:600">#${i+1}</span>
-        <span class="task-status ${t.status}">${t.status||'pending'}</span>
+    <div class="task-tile">
+      <div class="tile-num">#${i+1}</div>
+      <div class="tile-body">
+        <div class="tile-status ${t.status}">${t.status||'pending'}</div>
+        <div class="tile-desc">${editable ? `<textarea data-index="${i}" class="tile-edit">${escapeHtml(t.description)}</textarea>` : escapeHtml(t.description)}</div>
+        <div class="tile-agent">→ ${t.assignedTo || 'unassigned'}</div>
       </div>
-      <div style="font-size:13px;line-height:1.5">${editable ? `<textarea data-index="${i}" style="width:100%;background:var(--surface-3);border:none;border-radius:8px;padding:8px;color:white;font-family:inherit">${escapeHtml(t.description)}</textarea>` : escapeHtml(t.description)}</div>
-      <div style="margin-top:8px;font-size:12px;color:var(--text-secondary)">→ ${t.assignedTo || 'unassigned'}</div>
     </div>
   `).join('');
 }
@@ -65,24 +65,39 @@ function renderOutputs(agentOutputs) {
   const container = $('#outputs-list');
   if (!agentOutputs || !Object.keys(agentOutputs).length) { $('#outputs-section').classList.add('hidden'); return; }
   $('#outputs-section').classList.remove('hidden');
-  syncFilesFromAI(agentOutputs);
-  container.innerHTML = Object.entries(agentOutputs).map(([id, data]) => {
-    const agent = getAgent(id);
-    if (!agent) return '';
-    const badge = data.status === 'streaming' ? '⏳' : data.status === 'done' ? '✅' : data.status === 'error' ? '❌' : '';
-    const text = data.output || data.error || 'Waiting...';
-    return `
-      <div class="output-card">
-        <div class="header"><span>${agent.icon}</span> ${agent.name} <span style="margin-left:auto">${badge}</span></div>
-        <div class="body">${escapeHtml(text)}</div>
-        <button class="copy-output" data-text="${escapeAttr(text)}" style="margin-top:8px;background:transparent;border:1px solid var(--line);border-radius:20px;padding:4px 12px;font-size:11px;cursor:pointer;color:var(--text-secondary)">📋 Copy</button>
-      </div>
-    `;
-  }).join('');
+  /* Collapsed by default — show only counts */
+  const total = Object.keys(agentOutputs).length;
+  const done = Object.values(agentOutputs).filter(d => d.status === 'done').length;
+  const errored = Object.values(agentOutputs).filter(d => d.status === 'error').length;
+  container.innerHTML = `
+    <div class="outputs-summary" id="outputs-summary">
+      <span>${total} agents · ${done} done · ${errored} errored</span>
+      <button id="toggle-outputs" style="background:none;border:1px solid var(--border);border-radius:40px;padding:4px 14px;font-size:0.75rem;cursor:pointer;color:var(--text-secondary)">Show details</button>
+    </div>
+    <div id="outputs-detail" style="display:none">
+      ${Object.entries(agentOutputs).map(([id, data]) => {
+        const agent = getAgent(id);
+        if (!agent) return '';
+        const badge = data.status === 'streaming' ? '⏳' : data.status === 'done' ? '✅' : data.status === 'error' ? '❌' : '';
+        const text = data.output || data.error || 'Waiting...';
+        return `<div class="output-card">
+          <div class="header"><span>${agent.icon}</span> ${agent.name} <span style="margin-left:auto">${badge}</span></div>
+          <div class="body">${escapeHtml(text)}</div>
+          <button class="copy-output" data-text="${escapeAttr(text)}" style="margin-top:8px;background:transparent;border:1px solid var(--line);border-radius:20px;padding:4px 12px;font-size:11px;cursor:pointer;color:var(--text-secondary)">📋 Copy</button>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+  /* Toggle details */
+  const toggle = document.getElementById('toggle-outputs');
+  if (toggle) toggle.onclick = () => {
+    const detail = document.getElementById('outputs-detail');
+    const isHidden = detail.style.display === 'none';
+    detail.style.display = isHidden ? 'block' : 'none';
+    toggle.textContent = isHidden ? 'Hide details' : 'Show details';
+  };
   document.querySelectorAll('.copy-output').forEach(btn => {
-    btn.addEventListener('click', () => {
-      navigator.clipboard.writeText(btn.dataset.text).then(() => showToast('Copied!')).catch(() => {});
-    });
+    btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.text).then(() => showToast('Copied!')).catch(() => {}));
   });
 }
 
@@ -101,33 +116,52 @@ function syncFilesFromAI(agentOutputs) {
   if (changed) renderFilePanel();
 }
 
+/* Also scan synthesis text for file tags */
+function syncFilesFromSynthesis(synthText) {
+  if (!synthText) return;
+  let changed = false;
+  const FILE_RE = /<file\s+name=["']([^"']+)["']>([\s\S]*?)<\/file>/gi;
+  let match;
+  while ((match = FILE_RE.exec(synthText))) {
+    const name = match[1].trim(), content = match[2].trim();
+    if (projectFiles[name] !== content) { projectFiles[name] = content; changed = true; }
+  }
+  if (changed) renderFilePanel();
+}
+
 function renderFilePanel() {
   const names = Object.keys(projectFiles);
   if (names.length === 0) return;
-  /* Render file badges after outputs section */
-  const container = document.getElementById('outputs-list');
-  if (!container) return;
-  /* Remove old file panel if exists */
+  /* Render file panel in the content area after outputs */
+  const content = document.getElementById('content');
+  if (!content) return;
   const old = document.getElementById('file-panel-output');
   if (old) old.remove();
   const panel = document.createElement('div');
   panel.id = 'file-panel-output';
-  panel.style.cssText = 'margin-top:16px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)';
+  panel.style.cssText = 'margin-top:16px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)';
   panel.innerHTML = `
-    <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:12px">Generated Files</div>
+    <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:16px">Generated Files (${names.length})</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">
     ${names.map(n => {
       const ext = n.split('.').pop();
-      const icon = ext === 'html' ? '🌐' : ext === 'css' ? '🎨' : ext === 'js' ? '⚡' : '📄';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface-hover);border-radius:var(--radius-sm);margin-bottom:6px">
-        <span>${icon}</span>
-        <span style="flex:1;font-family:monospace;font-size:0.85rem">${escapeHtml(n)}</span>
-        <span style="color:var(--text-muted);font-size:0.75rem">${(projectFiles[n].length / 1024).toFixed(1)} KB</span>
-        <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:2px 10px;font-size:0.7rem;cursor:pointer">📋</button>
+      const icon = ext === 'html' ? '🌐' : ext === 'css' ? '🎨' : ext === 'js' ? '⚡' : ext === 'json' ? '📋' : ext === 'md' ? '📝' : '📄';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface-hover);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <span style="font-size:1.2rem">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:monospace;font-size:0.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis">${escapeHtml(n)}</div>
+          <div style="font-size:0.65rem;color:var(--text-muted)">${(projectFiles[n].length / 1024).toFixed(1)} KB · ${projectFiles[n].split('\n').length} lines</div>
+        </div>
+        <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">📋</button>
       </div>`;
     }).join('')}
-    <button id="download-zip-btn" style="margin-top:12px;background:var(--accent);color:white;border:none;border-radius:40px;padding:8px 20px;font-weight:600;cursor:pointer;font-size:0.8rem">⬇ Download All (.zip)</button>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:10px">
+      <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download All (.zip)</button>
+      <button id="preview-btn" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:40px;padding:10px 24px;font-weight:500;cursor:pointer;font-size:0.85rem">👁 Preview</button>
+    </div>
   `;
-  container.appendChild(panel);
+  content.appendChild(panel);
 
   /* Wire up copy buttons */
   panel.querySelectorAll('.copy-file').forEach(btn => {
@@ -180,6 +214,8 @@ function renderFilePanel() {
 function renderSynthesis(text) {
   $('#synth-section').classList.toggle('hidden', !text);
   $('#synth-body').textContent = text || '';
+  /* Also scan synthesis for file tags */
+  syncFilesFromSynthesis(text);
 }
 
 /* ── Export ── */
@@ -215,6 +251,7 @@ function render(state) {
   dot.className = `status-dot ${active ? 'working' : state.step==='done'?'done':state.step==='error'?'error':''}`;
   $('#status-text').textContent = statusText(state);
   renderTasks(state.tasks, state.step === 'confirm-tasks');
+  syncFilesFromAI(state.agentOutputs);
   renderOutputs(state.agentOutputs);
   renderSynthesis(state.synthesis);
   $('#confirm-bar').style.display = state.step === 'confirm-tasks' ? 'flex' : 'none';
