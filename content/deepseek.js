@@ -98,20 +98,28 @@
           return { loggedIn: true };
         }
         case 'isGenerating': {
-          /* Check if DeepSeek is still generating: send button disabled, or stop button visible */
+          /* DeepSeek: during generation the send button is replaced with a stop button, or the send button is disabled */
+          /* Check for stop button first (visible during generation) */
+          const allVisible = document.querySelectorAll('div[role="button"], button, [class*="stop"], [class*="generating"]');
+          for (const el of allVisible) {
+            if (el.offsetHeight === 0) continue;
+            const text = (el.textContent || '').toLowerCase();
+            const cls = (el.className || '').toLowerCase();
+            if (text.includes('stop') || cls.includes('stop') || el.getAttribute('aria-label')?.toLowerCase().includes('stop')) {
+              return { generating: true };
+            }
+          }
+          /* Check if send button exists and is enabled */
           const sendBtn = document.querySelector('div.ds-button--primary.ds-button--filled');
-          const stopIndicator = document.querySelector('[class*="stop"], [class*="generating"]');
-          const textareaEmpty = getInput()?.value?.length === 0;
-          /* If send button is disabled or stop indicator visible, still generating */
-          if (sendBtn?.className?.includes('disabled') || sendBtn?.hasAttribute('disabled') || stopIndicator) {
-            return { generating: true };
+          if (sendBtn) {
+            const isDisabled = sendBtn.className.includes('disabled') || sendBtn.hasAttribute('disabled') || sendBtn.getAttribute('aria-disabled') === 'true';
+            if (isDisabled) return { generating: true };
+            /* Button is enabled and visible — not generating */
+            if (!isDisabled && sendBtn.offsetHeight > 0) return { generating: false };
           }
-          /* If send button is enabled and textarea is empty (submitted), probably done */
-          if (sendBtn && !sendBtn.className.includes('disabled') && textareaEmpty) {
-            return { generating: false };
-          }
-          /* Fallback: if there's text in the textarea, user might still be typing */
-          if (!textareaEmpty) return { generating: true };
+          /* Fallback: if textarea has content and no visible send button, might still be generating */
+          const ta = document.querySelector('textarea');
+          if (ta && ta.value?.length > 0 && !sendBtn) return { generating: true };
           return { generating: false };
         }
         default:

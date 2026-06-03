@@ -73,10 +73,18 @@
         }
 
         case 'isGenerating': {
-          /* ChatGPT: check if send button is disabled (generating) or stop button visible */
+          /* ChatGPT: during generation, the send button becomes a stop square. Check for stop button first. */
+          const allBtns = document.querySelectorAll('button');
+          for (const btn of allBtns) {
+            if (btn.offsetHeight === 0) continue;
+            const ariaLabel = (btn.ariaLabel || '').toLowerCase();
+            const text = (btn.textContent || '').toLowerCase();
+            if (ariaLabel.includes('stop') || text.includes('stop') || btn.className.includes('stop')) {
+              return { generating: true };
+            }
+          }
+          /* Check send button state */
           const sendBtn = document.querySelector('button[data-testid="send-button"]');
-          const stopBtn = document.querySelector('[class*="stop"], button[aria-label*="Stop"]');
-          if (stopBtn) return { generating: true };
           if (sendBtn && sendBtn.disabled) return { generating: true };
           if (sendBtn && !sendBtn.disabled) return { generating: false };
           return { generating: false };

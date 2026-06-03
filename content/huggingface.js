@@ -61,6 +61,15 @@
           }
           return { loggedIn: true };
         }
+        case 'isGenerating': {
+          const allBtns = document.querySelectorAll('button, [role="button"]');
+          for (const btn of allBtns) {
+            if (btn.offsetHeight === 0) continue;
+            const t = (btn.textContent || '').toLowerCase();
+            if (t.includes('stop') || (btn.ariaLabel || '').toLowerCase().includes('stop')) return { generating: true };
+          }
+          return { generating: false };
+        }
         default:
           throw new Error('Unknown action: ' + msg.action);
       }
