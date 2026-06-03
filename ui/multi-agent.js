@@ -317,6 +317,8 @@ function render(state) {
   syncFilesFromAI(state.agentOutputs);
   renderOutputs(state.agentOutputs);
   renderSynthesis(state.synthesis);
+  /* Always render file panel if files exist */
+  if (Object.keys(projectFiles).length > 0) renderFilePanel();
   $('#confirm-bar').style.display = state.step === 'confirm-tasks' ? 'flex' : 'none';
   if (state.selectedAgents) highlightAgents(state.selectedAgents);
   if (['done', 'error', 'cancelled'].includes(state.step)) {
