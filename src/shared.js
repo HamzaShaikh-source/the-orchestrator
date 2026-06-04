@@ -159,18 +159,14 @@ function sleep(ms) {
 
 const PLACEHOLDER_RE = /^(thinking|searching|generating|preparing|loading|analyzing)/i;
 
-async function poll(tabId, prompt, maxSec = 120) {
+async function poll(tabId, prompt, maxSec = 180) {
   let last = '';
   let stable = 0;
   let maxLen = 0;
   let readFailures = 0;
-  const isCancelled = () => cancelled || multiCancelled;
+  const CANCELLED = () => cancelled || multiCancelled;
   for (let i = 0; i < maxSec; i++) {
-    if (isCancelled()) throw new CancelError();
-
-    /* Check if the AI is still generating before reading */
-    const genCheck = await send(tabId, { action: 'isGenerating' });
-    const isGenerating = genCheck?.generating === true;
+    if (CANCELLED()) throw new CancelError();
 
     const r = await send(tabId, { action: 'read' });
     if (r?.error) {
@@ -193,14 +189,9 @@ async function poll(tabId, prompt, maxSec = 120) {
       last = cur;
     } else if (cur === last) {
       stable++;
-      /* Only return if AI is NOT still generating */
-      if (!isGenerating) {
-        const required = cur.length > 1000 ? 8 : cur.length > 200 ? 5 : 3;
-        if (stable >= required && cur.length > 10) return cur;
-      } else {
-        /* AI is still generating — reset stable count to avoid false completion */
-        stable = Math.min(stable, 2);
-      }
+      /* Require longer stability for longer texts */
+      const required = cur.length > 2000 ? 20 : cur.length > 500 ? 15 : 10;
+      if (stable >= required && cur.length > 10) return cur;
     } else {
       stable = 0;
       last = cur;
