@@ -158,8 +158,12 @@ function renderFilePanel() {
       </div>`;
     }).join('')}
     </div>
-    <div style="margin-top:16px;display:flex;gap:10px">
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
       <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download All (.zip)</button>
+      <button id="preview-html-btn" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:40px;padding:10px 24px;font-weight:500;cursor:pointer;font-size:0.85rem">&#x1f441; Preview HTML</button>
+    </div>
+    <div id="preview-container" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:400px">
+      <iframe id="preview-iframe" style="width:100%;height:100%;border:none;background:white"></iframe>
     </div>
   `;
 
@@ -278,6 +282,33 @@ function renderFilePanel() {
       showToast('Downloaded project-files.zip');
     });
   }
+  
+  /* Preview HTML button handler */
+  setTimeout(() => {
+    const previewBtn = document.getElementById('preview-html-btn');
+    if (previewBtn) {
+      previewBtn.onclick = () => {
+        const htmlFile = Object.entries(projectFiles).find(([name]) => name.endsWith('.html'));
+        if (!htmlFile) { showToast('No HTML file to preview', 'error'); return; }
+        const container = document.getElementById('preview-container');
+        const iframe = document.getElementById('preview-iframe');
+        if (!container || !iframe) return;
+        if (container.style.display === 'block') {
+          container.style.display = 'none';
+          return;
+        }
+        const blob = new Blob([htmlFile[1]], { type: 'text/html' });
+        iframe.src = URL.createObjectURL(blob);
+        container.style.display = 'block';
+        previewBtn.textContent = '✕ Close Preview';
+        /* Reset button text when preview is closed */
+        const observer = new MutationObserver(() => {
+          if (container.style.display === 'none') previewBtn.textContent = '👁 Preview HTML';
+        });
+        observer.observe(container, { attributes: true, attributeFilter: ['style'] });
+      };
+    }
+  }, 100);
 }
 
 function renderSynthesis(text) {

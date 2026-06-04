@@ -506,27 +506,38 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     }
     if (multiCancelled) throw new CancelError();
 
-    /* ── 3. Execute: Brain manages each specialist ── */
+    /* ── 3. Execute: Parallel across different agents ── */
     const agentOutputs = {};
 
     await setMultiState({ tasks: [...tasks], step: 'running' });
 
-    /* Execute tasks sequentially (not parallel) so brain can maintain context */
+    /* Group tasks by agent for parallel execution */
+    const agentGroups = {};
     for (const task of tasks) {
-      if (multiCancelled) throw new CancelError();
-      const agent = getAgent(task.assignedTo);
-      if (!agent) { task.status = 'error'; continue; }
-
-      task.status = 'in-progress';
-      await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
-      console.log(`[Orch] Brain managing task on ${agent.name}: ${task.description.slice(0, 50)}`);
-
-      try {
-        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles);
-      } catch (err) {
-        if (err instanceof CancelError) throw err;
-      }
+      const id = task.assignedTo || 'unassigned';
+      if (!agentGroups[id]) agentGroups[id] = [];
+      agentGroups[id].push(task);
     }
+
+    /* Run each agent group in parallel */
+    const groupPromises = Object.entries(agentGroups).map(async ([agentId, agentTasks]) => {
+      for (const task of agentTasks) {
+        if (multiCancelled) throw new CancelError();
+        const agent = getAgent(agentId);
+        if (!agent) { task.status = 'error'; continue; }
+
+        task.status = 'in-progress';
+        await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
+
+        try {
+          await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles);
+        } catch (err) {
+          if (err instanceof CancelError) throw err;
+        }
+      }
+    });
+
+    await Promise.all(groupPromises);
     if (multiCancelled) throw new CancelError();
 
     /* ── 4. Final brain synthesis ── */
