@@ -77,25 +77,27 @@
 
   function getResponses() {
     let els = $$(S.response);
-    if (!els) {
-      /* Auto-heal: scan for elements with substantial text content */
-      const textEls = document.querySelectorAll('div, p, section, article');
-      const candidates = [];
-      for (const el of textEls) {
-        const text = (el.innerText || '').trim();
-        if (text.length > 100 && el.offsetHeight > 0) {
-          /* Skip input areas */
-          if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
-          candidates.push(el);
-        }
-      }
-      if (candidates.length > 0) {
-        /* Return the innermost candidates (not containers of others) */
-        const inner = candidates.filter(c => !candidates.some(other => other !== c && other.contains(c)));
-        els = inner.length > 0 ? inner : candidates;
-      }
+    if (els && els.length > 0) return els;
+    
+    /* Auto-heal: only look in the MAIN content area for likely response elements */
+    const mainArea = document.querySelector('main, [class*="conversation"], [class*="chat"], [class*="message"], [role="main"]') || document.body;
+    const textEls = mainArea.querySelectorAll('div, p, [class*="markdown"], [class*="content"], [class*="message"]');
+    const candidates = [];
+    for (const el of textEls) {
+      const text = (el.innerText || '').trim();
+      if (text.length < 50) continue;
+      if (el.offsetHeight === 0) continue;
+      /* Skip elements clearly in input/composer areas */
+      if (el.closest('[class*="input"]') || el.closest('[class*="composer"]') || el.closest('textarea')) continue;
+      /* Skip known UI text */
+      if (text.includes('AI-generated') || text.includes('DeepThink') || text.includes('Search')) continue;
+      candidates.push(el);
     }
-    return els;
+    if (candidates.length > 0) {
+      const inner = candidates.filter(c => !candidates.some(other => other !== c && other.contains(c)));
+      return inner.length > 0 ? inner : candidates;
+    }
+    return null;
   }
 
   let lastInjected = '';
