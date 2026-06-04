@@ -76,11 +76,12 @@ async function aiSelectAgents(goal, usedTabs) {
 
 /* ── Tab helpers ── */
 
-async function ensureTab(agent, usedTabs, manualUrls) {
-  let tab = usedTabs[agent.id];
+async function ensureTab(agent, usedTabs, manualUrls, taskKey) {
+  const key = taskKey || agent.id;
+  let tab = usedTabs[key];
   if (tab && await tabAlive(tab.id)) return tab;
   tab = await getOrCreateTab(agent, manualUrls[agent.id]);
-  usedTabs[agent.id] = tab;
+  usedTabs[key] = tab;
   return tab;
 }
 
@@ -96,7 +97,7 @@ function friendlyError(err, agentName) {
   return `${agentName}: ${err?.message || err}`;
 }
 
-async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal, projectFiles = {}) {
+async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal, projectFiles = {}, taskKey) {
   const maxRetries = 2;
   let lastError = null;
 
@@ -104,13 +105,14 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
     if (multiCancelled) throw new CancelError();
     if (attempt > 1) {
       console.log(`[Orch] Retry #${attempt} for ${agent.name}`);
-      const oldTab = usedTabs[agent.id];
+      const key = taskKey || agent.id;
+      const oldTab = usedTabs[key];
       if (oldTab?.id) try { await chrome.tabs.remove(oldTab.id); } catch {}
-      delete usedTabs[agent.id];
+      delete usedTabs[key];
     }
 
     try {
-      const tab = await ensureTab(agent, usedTabs, manualUrls);
+      const tab = await ensureTab(agent, usedTabs, manualUrls, taskKey);
       await waitTab(tab.id);
       await sleep(3000);
 
@@ -323,25 +325,25 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       agentGroups[id].push(task);
     }
 
-    /* Run each agent group in parallel */
-    const groupPromises = Object.entries(agentGroups).map(async ([agentId, agentTasks]) => {
-      for (const task of agentTasks) {
-        if (multiCancelled) throw new CancelError();
-        const agent = getAgent(agentId);
-        if (!agent) { task.status = 'error'; continue; }
+    /* Run ALL tasks in parallel — each task gets its own tab */
+    const allTaskPromises = tasks.map(async (task) => {
+      if (multiCancelled) throw new CancelError();
+      const agent = getAgent(task.assignedTo);
+      if (!agent) { task.status = 'error'; return; }
 
-        task.status = 'in-progress';
-        await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
+      task.status = 'in-progress';
+      await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
 
-        try {
-          await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles);
-        } catch (err) {
-          if (err instanceof CancelError) throw err;
-        }
+      try {
+        /* Use task-specific tab key so each task gets its own tab */
+        const taskKey = agent.id + '-' + tasks.indexOf(task);
+        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, taskKey);
+      } catch (err) {
+        if (err instanceof CancelError) throw err;
       }
     });
 
-    await Promise.all(groupPromises);
+    await Promise.all(allTaskPromises);
     if (multiCancelled) throw new CancelError();
 
     /* ── 4. Final brain synthesis ── */
