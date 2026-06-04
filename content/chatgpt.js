@@ -2,7 +2,7 @@
   'use strict';
 
   const S = {
-    input: ['#prompt-textarea', 'div[contenteditable="true"]'],
+    input: ['#prompt-textarea', 'textarea', 'div[contenteditable="true"]'],
     submit: [
       'button[data-testid="send-button"]',
       'button[aria-label*="Send"]:not([disabled])',
