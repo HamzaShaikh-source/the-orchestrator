@@ -509,6 +509,14 @@ function render(state) {
   if (Object.keys(projectFiles).length > 0) renderFilePanel();
   $('#confirm-bar').style.display = state.step === 'confirm-tasks' ? 'flex' : 'none';
   if (state.selectedAgents) highlightAgents(state.selectedAgents);
+  /* Show elapsed time during pipeline */
+  const elapsedEl = $('#status-elapsed');
+  if (pipelineStartTime && ['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(state.step)) {
+    const secs = Math.round((Date.now() - pipelineStartTime) / 1000);
+    elapsedEl.textContent = secs > 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+  } else {
+    elapsedEl.textContent = '';
+  }
   if (['done', 'error', 'cancelled'].includes(state.step)) {
     running = false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
     stopPoll();
@@ -626,6 +634,7 @@ async function renderChatList(filter) {
     el.addEventListener('click', (e) => { if (!e.target.classList.contains('del-chat')) selectChat(el.dataset.id); });
     el.querySelector('.del-chat')?.addEventListener('click', async (e) => {
       e.stopPropagation();
+      if (!confirm('Delete this chat?')) return;
       await deleteChat(el.dataset.id);
       if (currentChatId === el.dataset.id) newChat();
       renderChatList(document.getElementById('chat-search')?.value);
@@ -762,7 +771,7 @@ function highlightSyntax(code) {
 
 /* ── Init ── */
 (async () => {
-  /* Theme toggle - moved from inline script (CSP block) */
+  /* Theme toggle */
   const isDark = localStorage.getItem('theme') === 'dark';
   if (isDark) document.body.classList.add('dark');
   window.updateThemeIcon = () => {
@@ -779,7 +788,28 @@ function highlightSyntax(code) {
     });
   }
 
+  /* Recover pipeline state if page was refreshed mid-run */
+  const savedState = sessionStorage.getItem('pipelineState');
+  if (savedState) {
+    try {
+      const parsed = JSON.parse(savedState);
+      if (parsed.projectFiles) projectFiles = parsed.projectFiles;
+      if (parsed.step && ['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(parsed.step)) {
+        showToast('🔄 Pipeline was running — reconnecting...', 'info');
+        startPoll();
+      }
+      sessionStorage.removeItem('pipelineState');
+    } catch {}
+  }
+
+  /* Loading state: show a brief transition */
+  document.body.style.opacity = '0';
+  requestAnimationFrame(() => { document.body.style.transition = 'opacity 0.3s'; document.body.style.opacity = '1'; });
+
   renderAgentCards();
+  await renderChatList();
+  newChat();
+})();
   await renderChatList();
   newChat();
 })();
