@@ -181,66 +181,100 @@ function renderFilePanel() {
       const files = Object.entries(projectFiles).map(([name, content]) => ({ name, content }));
       if (files.length === 0) return showToast('No files to download', 'error');
       
-      /* Original working createZipBlob */
-      const encoder = new TextEncoder();
-      const local = [], central = [];
-      let off = 0;
+      /* Build ZIP using simple concatenation */
+      /* Local file header (30 bytes) + filename + file data for each file */
+      /* Then central directory (46 bytes + filename) for each file */
+      /* Then end of central directory record (22 bytes) */
+      const enc = new TextEncoder();
+      const parts = [];
+      let offset = 0;
+      const centralParts = [];
+      
       for (const f of files) {
-        const d = encoder.encode(f.content), n = encoder.encode(f.name);
+        const data = enc.encode(f.content);
+        const name = enc.encode(f.name);
         const crc = (() => {
           let c = 0xffffffff;
-          for (let i = 0; i < d.length; i++) { c ^= d[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xedb88320 : 0); }
+          for (let i = 0; i < data.length; i++) { c ^= data[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xedb88320 : 0); }
           return (c ^ 0xffffffff) >>> 0;
         })();
-        const sz = d.length;
-        const lh = new ArrayBuffer(30 + n.length);
-        const dv = new DataView(lh);
-        dv.setUint32(0, 0x04034b50, true);
-        dv.setUint16(4, 20, true);
-        dv.setUint16(8, 0, true);
-        dv.setUint32(14, crc, true);
-        dv.setUint32(18, sz, true);
-        dv.setUint32(22, sz, true);
-        dv.setUint16(26, n.length, true);
-        new Uint8Array(lh, 30).set(n);
-        local.push(new Uint8Array(lh), d);
+        const sz = data.length;
+        const nl = name.length;
         
-        const ch = new ArrayBuffer(46 + n.length);
-        const cdv = new DataView(ch);
-        cdv.setUint32(0, 0x02014b50, true);
-        cdv.setUint16(4, 20, true);
-        cdv.setUint16(10, 0, true);
-        cdv.setUint32(14, crc, true);
-        cdv.setUint32(18, sz, true);
-        cdv.setUint32(22, sz, true);
-        cdv.setUint16(26, n.length, true);
-        cdv.setUint32(42, off, true);
-        new Uint8Array(ch, 46).set(n);
-        central.push(new Uint8Array(ch));
-        off += 30 + n.length + sz;
+        /* Local file header */
+        const buf = new ArrayBuffer(30);
+        const v = new DataView(buf);
+        v.setUint32(0, 0x04034b50, true); /* local file header signature */
+        v.setUint16(4, 20, true); /* version needed */
+        v.setUint16(6, 0, true); /* general purpose bit flag */
+        v.setUint16(8, 0, true); /* compression method: stored */
+        v.setUint16(10, 0, true); /* last mod file time */
+        v.setUint16(12, 0, true); /* last mod file date */
+        v.setUint32(14, crc, true); /* crc-32 */
+        v.setUint32(18, sz, true); /* compressed size */
+        v.setUint32(22, sz, true); /* uncompressed size */
+        v.setUint16(26, nl, true); /* file name length */
+        v.setUint16(28, 0, true); /* extra field length */
+        parts.push(new Uint8Array(buf), name, data);
+        
+        /* Central directory entry */
+        const cbuf = new ArrayBuffer(46);
+        const cv = new DataView(cbuf);
+        cv.setUint32(0, 0x02014b50, true); /* central directory file header signature */
+        cv.setUint16(4, 20, true); /* version made by */
+        cv.setUint16(6, 20, true); /* version needed to extract */
+        cv.setUint16(8, 0, true); /* general purpose bit flag */
+        cv.setUint16(10, 0, true); /* compression method: stored */
+        cv.setUint16(12, 0, true); /* last mod file time */
+        cv.setUint16(14, 0, true); /* last mod file date */
+        cv.setUint32(16, crc, true); /* crc-32 */
+        cv.setUint32(20, sz, true); /* compressed size */
+        cv.setUint32(24, sz, true); /* uncompressed size */
+        cv.setUint16(28, nl, true); /* file name length */
+        cv.setUint16(30, 0, true); /* extra field length */
+        cv.setUint16(32, 0, true); /* file comment length */
+        cv.setUint16(34, 0, true); /* disk number start */
+        cv.setUint16(36, 0, true); /* internal file attributes */
+        cv.setUint32(38, 0, true); /* external file attributes */
+        cv.setUint32(42, offset, true); /* relative offset of local header */
+        centralParts.push({ header: new Uint8Array(cbuf), name });
+        offset += 30 + nl + sz;
       }
-      const cs = central.reduce((s, a) => s + a.length, 0);
-      const co = off;
-      const eo = new ArrayBuffer(22);
-      const ev = new DataView(eo);
-      ev.setUint32(0, 0x06054b50, true);
-      ev.setUint16(8, files.length, true);
-      ev.setUint16(10, files.length, true);
-      ev.setUint32(12, cs, true);
-      ev.setUint32(16, co, true);
-      const allChunks = [...local, ...central, new Uint8Array(eo)];
-      const total = allChunks.reduce((s, a) => s + a.length, 0);
-      const merged = new Uint8Array(total);
+      
+      /* Add central directory entries */
+      let centralSize = 0;
+      for (const c of centralParts) {
+        parts.push(c.header, c.name);
+        centralSize += 46 + c.name.length;
+      }
+      
+      /* End of central directory record */
+      const eocd = new ArrayBuffer(22);
+      const ev = new DataView(eocd);
+      ev.setUint32(0, 0x06054b50, true); /* end of central dir signature */
+      ev.setUint16(4, 0, true); /* number of this disk */
+      ev.setUint16(6, 0, true); /* disk where central directory starts */
+      ev.setUint16(8, files.length, true); /* number of central directory records on this disk */
+      ev.setUint16(10, files.length, true); /* total number of central directory records */
+      ev.setUint32(12, centralSize, true); /* size of central directory */
+      ev.setUint32(16, offset, true); /* offset of start of central directory */
+      ev.setUint16(20, 0, true); /* ZIP file comment length */
+      parts.push(new Uint8Array(eocd));
+      
+      /* Calculate total length and merge */
+      const totalLen = parts.reduce((s, p) => s + p.length, 0);
+      const merged = new Uint8Array(totalLen);
       let pos = 0;
-      for (const c of allChunks) { merged.set(c, pos); pos += c.length; }
+      for (const p of parts) { merged.set(p, pos); pos += p.length; }
+      
       const blob = new Blob([merged], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = 'project-files.zip';
+      document.body.appendChild(a);
       a.click();
-      /* Don't revoke immediately — let the download start */
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 3000);
       showToast('Downloaded project-files.zip');
     });
   }
