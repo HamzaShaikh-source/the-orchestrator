@@ -179,118 +179,71 @@ function renderFilePanel() {
   if (dlBtn) {
     dlBtn.addEventListener('click', () => {
       const files = Object.entries(projectFiles).map(([name, content]) => ({ name, content }));
-      if (files.length === 0) return;
+      if (files.length === 0) return showToast('No files to download', 'error');
       
-      /* Build ZIP manually */
+      /* Original working createZipBlob */
       const encoder = new TextEncoder();
-      const chunks = [];
-      let centralSize = 0;
-      let centralOffset = 0;
-      let localTotal = 0;
-
-      /* Local file entries */
-      const centralHeaders = [];
+      const local = [], central = [];
+      let off = 0;
       for (const f of files) {
-        const data = encoder.encode(f.content);
-        const nameBytes = encoder.encode(f.name);
+        const d = encoder.encode(f.content), n = encoder.encode(f.name);
         const crc = (() => {
           let c = 0xffffffff;
-          for (let i = 0; i < data.length; i++) { c ^= data[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xedb88320 : 0); }
+          for (let i = 0; i < d.length; i++) { c ^= d[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xedb88320 : 0); }
           return (c ^ 0xffffffff) >>> 0;
         })();
-        const size = data.length;
-        const nameLen = nameBytes.length;
-
-        /* Local file header */
-        const lh = new ArrayBuffer(30 + nameLen);
-        const lv = new DataView(lh);
-        lv.setUint32(0, 0x04034b50, true); /* signature */
-        lv.setUint16(4, 20, true); /* version needed */
-        lv.setUint16(6, 0, true); /* flags */
-        lv.setUint16(8, 0, true); /* compression: store */
-        lv.setUint16(10, 0, true); /* mod time */
-        lv.setUint16(12, 0, true); /* mod date */
-        lv.setUint32(14, crc, true);
-        lv.setUint32(18, size, true); /* compressed size */
-        lv.setUint32(22, size, true); /* uncompressed size */
-        lv.setUint16(26, nameLen, true);
-        lv.setUint16(28, 0, true); /* extra field length */
-        new Uint8Array(lh, 30).set(nameBytes);
-        chunks.push(new Uint8Array(lh), data);
-
-        /* Central directory header */
-        const ch = new ArrayBuffer(46 + nameLen);
-        const cv = new DataView(ch);
-        cv.setUint32(0, 0x02014b50, true);
-        cv.setUint16(4, 20, true);
-        cv.setUint16(6, 20, true);
-        cv.setUint16(8, 0, true);
-        cv.setUint16(10, 0, true);
-        cv.setUint16(12, 0, true);
-        cv.setUint32(14, crc, true);
-        cv.setUint32(18, size, true);
-        cv.setUint32(22, size, true);
-        cv.setUint16(26, nameLen, true);
-        cv.setUint16(28, 0, true); /* extra field length */
-        cv.setUint16(30, 0, true); /* file comment length */
-        cv.setUint16(32, 0, true); /* disk number start */
-        cv.setUint16(34, 0, true); /* internal file attributes */
-        cv.setUint32(36, 0, true); /* external file attributes */
-        cv.setUint32(42, localTotal, true); /* offset of local header */
-        new Uint8Array(ch, 46).set(nameBytes);
-        centralHeaders.push(new Uint8Array(ch));
-        localTotal += 30 + nameLen + size;
+        const sz = d.length;
+        const lh = new ArrayBuffer(30 + n.length);
+        const dv = new DataView(lh);
+        dv.setUint32(0, 0x04034b50, true);
+        dv.setUint16(4, 20, true);
+        dv.setUint16(8, 0, true);
+        dv.setUint32(14, crc, true);
+        dv.setUint32(18, sz, true);
+        dv.setUint32(22, sz, true);
+        dv.setUint16(26, n.length, true);
+        new Uint8Array(lh, 30).set(n);
+        local.push(new Uint8Array(lh), d);
+        
+        const ch = new ArrayBuffer(46 + n.length);
+        const cdv = new DataView(ch);
+        cdv.setUint32(0, 0x02014b50, true);
+        cdv.setUint16(4, 20, true);
+        cdv.setUint16(10, 0, true);
+        cdv.setUint32(14, crc, true);
+        cdv.setUint32(18, sz, true);
+        cdv.setUint32(22, sz, true);
+        cdv.setUint16(26, n.length, true);
+        cdv.setUint32(42, off, true);
+        new Uint8Array(ch, 46).set(n);
+        central.push(new Uint8Array(ch));
+        off += 30 + n.length + sz;
       }
-
-      centralOffset = localTotal;
-      for (const ch of centralHeaders) {
-        chunks.push(ch);
-        centralSize += ch.length;
-      }
-
-      /* End of central directory */
-      const eocd = new ArrayBuffer(22);
-      const ev = new DataView(eocd);
+      const cs = central.reduce((s, a) => s + a.length, 0);
+      const co = off;
+      const eo = new ArrayBuffer(22);
+      const ev = new DataView(eo);
       ev.setUint32(0, 0x06054b50, true);
-      ev.setUint16(4, 0, true);
-      ev.setUint16(6, 0, true);
       ev.setUint16(8, files.length, true);
       ev.setUint16(10, files.length, true);
-      ev.setUint32(12, centralSize, true);
-      ev.setUint32(16, centralOffset, true);
-      ev.setUint16(20, 0, true);
-      chunks.push(new Uint8Array(eocd));
-
-      /* Merge all chunks into one blob */
-      const totalLen = chunks.reduce((s, c) => s + c.length, 0);
-      const merged = new Uint8Array(totalLen);
-      let offset = 0;
-      for (const c of chunks) { merged.set(c, offset); offset += c.length; }
-      
-      /* Verify ZIP integrity: must end with 0x06054b50 signature */
-      const isValid = merged.length >= 22 && 
-        merged[merged.length - 22] === 0x50 && 
-        merged[merged.length - 21] === 0x4b &&
-        merged[merged.length - 20] === 0x05 &&
-        merged[merged.length - 19] === 0x06;
-      
-      if (!isValid) {
-        showToast('ZIP generation error - try exporting as Markdown instead', 'error');
-        return;
-      }
-      
-      /* Use chrome.downloads API for reliable download */
-      const blob = new Blob([merged], {type:'application/octet-stream'});
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result.split(',')[1];
-        chrome.runtime.sendMessage({
-          action: 'downloadFile',
-          filename: 'project-files.zip',
-          data: base64
-        });
-      };
-      reader.readAsDataURL(blob);
+      ev.setUint32(12, cs, true);
+      ev.setUint32(16, co, true);
+      const allChunks = [...local, ...central, new Uint8Array(eo)];
+      const total = allChunks.reduce((s, a) => s + a.length, 0);
+      const merged = new Uint8Array(total);
+      let pos = 0;
+      for (const c of allChunks) { merged.set(c, pos); pos += c.length; }
+      const blob = new Blob([merged], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'project-files.zip';
+      a.click();
+      /* Don't revoke immediately — let the download start */
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      showToast('Downloaded project-files.zip');
+    });
+  }
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = 'project-files.zip'; a.click();
       URL.revokeObjectURL(url); showToast('Downloaded project-files.zip');
