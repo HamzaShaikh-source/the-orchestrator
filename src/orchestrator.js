@@ -118,10 +118,11 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
         throw new Error('content_script_not_detected');
       }
 
-      /* Step 1: Get instruction (brain-written or direct) */
-      const uniqueAgents = new Set(tasks.map(t => t.assignedTo)).size;
+      /* Step 1: Get instruction — skip brain writing if all tasks go to same agent */
+      const assignedAgents = tasks.map(t => t.assignedTo).filter(Boolean);
+      const allSameAgent = assignedAgents.length > 0 && assignedAgents.every(a => a === assignedAgents[0]);
       let instruction;
-      if (uniqueAgents > 1) {
+      if (!allSameAgent) {
         console.log(`[Brain] Writing task assignment for ${agent.name}...`);
         await setMultiState({ step: 'brain-writing', brainPhase: `Brain preparing task for ${agent.name}...`, agentOutputs: { ...agentOutputs } });
         instruction = await brainWriteTaskPrompt(task, agent, tasks, allAgentOutputs, goal, usedTabs, projectFiles);
