@@ -219,13 +219,13 @@ function renderSynthesis(text) {
   const displayText = text ? text.replace(/<file\s+name=["'][^"']+["']>[\s\S]*?<\/file>/gi, '').trim() : '';
   $('#synth-section').classList.toggle('hidden', !displayText);
   $('#synth-body').textContent = displayText || '';
-  /* Also scan synthesis for file tags — during active runs AND at completion */
-  if (text && (running || state.step === 'done')) {
+  /* Also scan synthesis for file tags */
+  if (text && running) {
     syncFilesFromSynthesis(text);
   }
 }
 
-/* ── Export ── */
+/* Export */
 async function exportResults() {
   const goal = $('#goal-input').value || 'Chat';
   const synth = $('#synth-body')?.textContent || '';
