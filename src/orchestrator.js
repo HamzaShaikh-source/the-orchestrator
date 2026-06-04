@@ -167,11 +167,17 @@ Assignment:`;
     const output = await poll(tab.id, prompt, 90);
     if (!output || output === '\u26a0\ufe0f Timeout') return buildTaskPrompt(task, allTasks, agentOutputs, goal);
 
-    /* Return brain-written prompt — append file format instructions for code tasks */
-    if (task.type === 'code') {
-      return output + `\n\nIMPORTANT: Wrap each file in <file name="filename.ext"> and </file> tags.\nExample: <file name="index.html">\n<!DOCTYPE html>\n</file>`;
+    /* Append the ACTUAL outputs from previous specialists so the next agent knows what was built */
+    let fullInstruction = output;
+    if (doneOutputs) {
+      fullInstruction += `\n\n## Actual Outputs From Previous Agents\nHere are the COMPLETE outputs from agents who have already worked on this project. You MUST build upon these, not duplicate them.\n\n${doneOutputs.slice(0, 4000)}`;
     }
-    return output;
+
+    /* Also append file-format instructions for code tasks */
+    if (task.type === 'code') {
+      fullInstruction += `\n\nIMPORTANT: Wrap each file in <file name="filename.ext"> and </file> tags.\nExample: <file name="index.html">\n<!DOCTYPE html>\n</file>`;
+    }
+    return fullInstruction;
   } catch (err) {
     console.warn('[Brain] Failed to write task prompt, using fallback:', err.message);
     return buildTaskPrompt(task, allTasks, agentOutputs, goal);
@@ -222,6 +228,12 @@ Review:`;
 
     const review = await poll(tab.id, prompt, 60);
     if (!review || review === '\u26a0\ufe0f Timeout') return output;
+
+    /* Skip invalid review responses (ChatGPT UI messages, etc.) */
+    if (review.length < 10 || review.includes('One more step') || review.includes('Sign up') || review.includes('Log in')) {
+      console.warn('[Brain] Invalid review response, keeping output');
+      return output;
+    }
 
     const isApproved = review.startsWith('APPROVED');
     const isMinor = review.startsWith('MINOR:');
