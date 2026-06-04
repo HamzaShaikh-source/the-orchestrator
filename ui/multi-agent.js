@@ -68,6 +68,7 @@ function renderTasks(tasks, editable) {
         <div class="tile-desc">${editable ? `<textarea data-index="${i}" class="tile-edit">${escapeHtml(t.description)}</textarea>` : escapeHtml(t.description)}</div>
         <div class="tile-agent">→ ${t.assignedTo || 'unassigned'}</div>
         ${t.status === 'error' ? `<button class="retry-task" data-index="${i}" style="margin-top:6px;background:transparent;border:1px solid var(--danger);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--danger)">⟳ Retry</button>` : ''}
+        ${t.status === 'in-progress' ? `<button class="skip-task" data-index="${i}" style="margin-top:6px;margin-left:6px;background:transparent;border:1px solid var(--warning);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--warning)">⏭ Skip</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -555,6 +556,14 @@ async function fetchState() {
 function startPoll() { stopPoll(); pollTimer = setInterval(fetchState, 800); }
 function stopPoll() { if (pollTimer) clearInterval(pollTimer); }
 
+/* ── Goal templates ── */
+$('#template-select')?.addEventListener('change', (e) => {
+  if (e.target.value) {
+    $('#goal-input').value = e.target.value;
+    e.target.value = '';
+  }
+});
+
 /* ── Drag-and-drop file upload ── */
 const dropArea = document.getElementById('goal-input')?.parentElement;
 if (dropArea) {
@@ -710,13 +719,19 @@ $('#stop-btn').addEventListener('click', () => {
 $('#confirm-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({ action: 'confirmTasks' }));
 $('#cancel-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({ action: 'rejectTasks' }));
 
-/* ── Retry single task ── */
+/* ── Retry & Skip single task ── */
 document.addEventListener('click', (e) => {
   const retryBtn = e.target.closest('.retry-task');
+  const skipBtn = e.target.closest('.skip-task');
   if (retryBtn) {
     const idx = parseInt(retryBtn.dataset.index);
     showToast('Retrying task...', 'info');
     chrome.runtime.sendMessage({ action: 'retryTask', taskIndex: idx });
+  }
+  if (skipBtn) {
+    const idx = parseInt(skipBtn.dataset.index);
+    showToast('Skipping task...', 'info');
+    chrome.runtime.sendMessage({ action: 'skipTask', taskIndex: idx });
   }
 });
 

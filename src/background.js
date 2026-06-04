@@ -1,4 +1,4 @@
-importScripts('shared.js', 'agents.js', 'task-planner.js', 'task-router.js', 'orchestrator.js');
+importScripts('shared.js', 'agents.js', 'prompts.js', 'task-planner.js', 'task-router.js', 'orchestrator.js');
 
 const DEFAULT_STATE = {
   step: 'idle', prompt: '', task: '',
@@ -243,12 +243,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     setMultiState({ tasksConfirmed: false }).then(() => sendResponse({ ok: true }));
     return true;
   } else if (msg.action === 'retryTask') {
-    /* Retry a specific task by resetting its status */
     getMultiState().then(s => {
       const tasks = s.tasks || [];
       if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) {
         tasks[msg.taskIndex].status = 'pending';
         setMultiState({ tasks: [...tasks], step: 'running' });
+      }
+    });
+    sendResponse({ ok: true });
+    return true;
+  } else if (msg.action === 'skipTask') {
+    getMultiState().then(s => {
+      const tasks = s.tasks || [];
+      if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) {
+        tasks[msg.taskIndex].status = 'skipped';
+        setMultiState({ tasks: [...tasks] });
       }
     });
     sendResponse({ ok: true });

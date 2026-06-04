@@ -483,7 +483,15 @@
     <div class="agent-strip" id="agent-strip"></div>
 
     <div class="input-section">
-      <textarea class="goal-input" id="goal-input" rows="2" placeholder="Describe your goal… e.g., 'Create a full-stack expense tracker with charts and export to PDF'"></textarea>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <textarea class="goal-input" id="goal-input" rows="2" placeholder="Describe your goal… e.g., 'Create a full-stack expense tracker with charts and export to PDF'"></textarea>
+        <select id="template-select" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;color:var(--text);font-size:11px;cursor:pointer;flex:0 0 auto;max-width:120px">
+          <option value="">Templates</option>
+          <option value="Create a personal portfolio website with CSS animations, dark theme, skills grid, and contact form. Single HTML file.">Portfolio</option>
+          <option value="Create a browser-based productivity tool with live clock, monthly calendar, and countdown timer. Single HTML file with glassmorphic UI.">Productivity Tool</option>
+          <option value="Build a dashboard with charts, tables, and filters for tracking expenses. HTML + CSS + JS files.">Expense Dashboard</option>
+        </select>
+      </div>
       <div class="action-row">
         <div class="file-attach">
           <label class="file-label">📎 Attach Files <input type="file" id="file-upload" multiple style="display:none"></label>
