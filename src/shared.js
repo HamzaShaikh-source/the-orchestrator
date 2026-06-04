@@ -204,7 +204,12 @@ async function poll(tabId, prompt, maxSec = 180) {
 
 function isEcho(text, prompt) {
   if (!prompt) return false;
-  return text.includes(prompt) || prompt.includes(text);
+  /* Only mark as echo if text is SIMILAR to prompt (length within 20% and high overlap) */
+  if (text.length > prompt.length * 0.8 && text.length < prompt.length * 1.2) {
+    return text.includes(prompt.substring(0, 80)) || prompt.includes(text.substring(0, 80));
+  }
+  /* If response is much longer than prompt, it's definitely not an echo */
+  return false;
 }
 
 function tabAlive(tabId) {

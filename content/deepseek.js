@@ -201,7 +201,12 @@
 
   function isUserMessage(text) {
     if (!lastInjected) return false;
-    return text.includes(lastInjected) || lastInjected.includes(text);
+    /* Only filter if text IS the injected message (not just contains it) */
+    if (text.length >= lastInjected.length * 0.8) {
+      /* Text is similar length to injected — check if it's the same content */
+      return text.includes(lastInjected.substring(0, 50)) || lastInjected.includes(text.substring(0, 50));
+    }
+    return false;
   }
 
   function readResponse() {
@@ -213,21 +218,29 @@
         if (t && !isPlaceholder(t) && !isUserMessage(t)) return t;
       }
     }
-    /* Fallback: scan all elements with significant text (low threshold for streaming) */
+    /* Fallback: scan all elements for response text — very conservative */
     const allDivs = document.querySelectorAll('div, p, section');
     const candidates = [];
     for (const el of allDivs) {
-      if (!el.innerText || el.innerText.length < 10) continue;
+      if (!el.innerText || el.innerText.length < 30) continue;
       if (isUserMessage(el.innerText)) continue;
       if (isPlaceholder(el.innerText)) continue;
       if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
+      /* Skip elements that contain the injected message */
+      if (lastInjected && (el.innerText.includes(lastInjected.substring(0, 100)) || lastInjected.includes(el.innerText.substring(0, 100)))) continue;
       candidates.push(el);
     }
     if (candidates.length > 0) {
+      /* Find the candidate that's most likely a response (not a container of others) */
       for (let i = candidates.length - 1; i >= 0; i--) {
         const el = candidates[i];
         const containsOther = candidates.some((other, j) => j !== i && other !== el && el.contains(other));
-        if (!containsOther) return el.innerText.trim();
+        if (!containsOther) {
+          const text = el.innerText.trim();
+          /* Verify it's not just a re-statement of the injected prompt */
+          if (lastInjected && (text.includes(lastInjected) || lastInjected.includes(text))) continue;
+          return text;
+        }
       }
       return candidates[candidates.length - 1].innerText.trim();
     }
