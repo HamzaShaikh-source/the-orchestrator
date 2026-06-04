@@ -470,7 +470,9 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
       </button>
     </div>
-    <div class="chat-list" id="chat-list"></div>
+    <div class="chat-list" id="chat-list">
+      <input id="chat-search" type="text" placeholder="Search chats..." style="width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;color:var(--text);font-size:11px;margin-bottom:8px;outline:none">
+    </div>
   </aside>
 
   <div class="main">
@@ -529,8 +531,9 @@
         </div>
       </div>
       <div id="outputs-section" class="hidden">
-        <div class="section-title">Agent Outputs</div>
-        <div id="outputs-list"></div>
+          <div class="section-title">Agent Outputs</div>
+          <button id="compare-btn" style="background:transparent;border:1px solid var(--border);border-radius:40px;padding:4px 14px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary);margin-bottom:8px;display:none">📊 Compare with... (select a chat)</button>
+          <div id="outputs-list"></div>
       </div>
       <div id="synth-section" class="hidden">
         <div class="section-title">Final Synthesis</div>

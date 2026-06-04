@@ -30,7 +30,17 @@ function renderAgentCards() {
       const idx = selectedAgents.indexOf(id);
       if (idx >= 0) selectedAgents.splice(idx, 1);
       else selectedAgents.push(id);
-      renderAgentCards();
+  /* Recover pipeline state if page was refreshed mid-run */
+  const savedState = sessionStorage.getItem('pipelineState');
+  if (savedState) {
+    try {
+      const parsed = JSON.parse(savedState);
+      if (parsed.projectFiles) projectFiles = parsed.projectFiles;
+      sessionStorage.removeItem('pipelineState');
+    } catch {}
+  }
+
+  renderAgentCards();
     });
   });
 }
@@ -68,6 +78,11 @@ function renderOutputs(agentOutputs) {
   const container = $('#outputs-list');
   if (!agentOutputs || !Object.keys(agentOutputs).length) { $('#outputs-section').classList.add('hidden'); return; }
   $('#outputs-section').classList.remove('hidden');
+  /* Show compare button if there are other chats */
+  listChats().then(chats => {
+    const hasOther = chats.some(c => c.id !== currentChatId && c.results?.agentOutputs);
+    if (hasOther) document.getElementById('compare-btn')?.style.removeProperty('display');
+  });
   /* Collapsed by default — show only counts */
   const total = Object.keys(agentOutputs).length;
   const done = Object.values(agentOutputs).filter(d => d.status === 'done').length;
@@ -356,6 +371,52 @@ async function exportResults() {
 }
 $('#export-btn')?.addEventListener('click', exportResults);
 
+/* ── Compare outputs ── */
+async function showCompareSelector() {
+  const chats = await listChats();
+  const options = chats.filter(c => c.id !== currentChatId && c.results?.agentOutputs).map(c => 
+    `${c.id}:${(c.title || 'Chat').substring(0, 40)}`
+  );
+  if (options.length === 0) { showToast('No other chats with outputs to compare', 'error'); return; }
+  const choice = prompt('Select chat to compare:\n' + options.map((o, i) => `${i}: ${o.split(':')[1]}`).join('\n'));
+  if (choice === null) return;
+  const idx = parseInt(choice);
+  if (isNaN(idx) || idx < 0 || idx >= options.length) { showToast('Invalid selection', 'error'); return; }
+  const chatId = options[idx].split(':')[0];
+  const chat = await getChat(chatId);
+  if (!chat?.results?.agentOutputs) { showToast('No outputs to compare', 'error'); return; }
+  /* Show comparison in a modal-like overlay */
+  const current = window._lastAgentOutputs || {};
+  const other = chat.results.agentOutputs;
+  const compareHtml = Object.keys({ ...current, ...other }).map(id => {
+    const agent = getAgent(id);
+    const name = agent?.name || id;
+    const curText = (current[id]?.output || '').substring(0, 500);
+    const othText = (other[id]?.output || '').substring(0, 500);
+    const same = curText === othText;
+    return `<div style="margin-bottom:16px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <div style="font-weight:600;margin-bottom:8px;font-size:0.85rem">${name} ${same ? '✅ identical' : '⚠️ different'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.75rem">
+        <div><div style="color:var(--text-muted);margin-bottom:4px">Current run:</div><pre style="white-space:pre-wrap;background:var(--surface-2);padding:8px;border-radius:4px;max-height:200px;overflow-y:auto">${escapeHtml(curText)}</pre></div>
+        <div><div style="color:var(--text-muted);margin-bottom:4px">Compared chat:</div><pre style="white-space:pre-wrap;background:var(--surface-2);padding:8px;border-radius:4px;max-height:200px;overflow-y:auto">${escapeHtml(othText)}</pre></div>
+      </div>
+    </div>`;
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:800px;width:90%;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;margin-bottom:16px">
+      <span style="font-weight:600;font-size:1rem">📊 Output Comparison</span>
+      <button id="close-compare" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
+    </div>
+    ${compareHtml}
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#close-compare').onclick = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+}
+$('#compare-btn')?.addEventListener('click', showCompareSelector);
+
 /* ── Status & render ── */
 function statusText(state) {
   if (state.step === 'login-check') return 'Checking logins...';
@@ -465,17 +526,58 @@ function render(state) {
         if (chat) { chat.projectFiles = { ...projectFiles }; saveChat(chat); }
       });
     }
-    if (state.step === 'done') showToast('✅ Pipeline complete!');
+    if (state.step === 'done') {
+      showToast('✅ Pipeline complete!');
+      /* Browser notification */
+      if (Notification.permission === 'granted') {
+        new Notification('The Orchestrator', { body: '✅ Pipeline completed!', icon: '../icons/icon128.png' });
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+    }
     else if (state.step === 'error') showToast('❌ Pipeline failed: ' + (state.error || ''), 'error');
   }
 }
 
 /* ── Polling ── */
 async function fetchState() {
-  try { const s = await chrome.runtime.sendMessage({ action: 'multiStatus' }); if (s) render(s); } catch {}
+  try { 
+    const s = await chrome.runtime.sendMessage({ action: 'multiStatus' }); 
+    if (s) {
+      render(s);
+      /* Save state for recovery on page refresh */
+      if (['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(s.step)) {
+        sessionStorage.setItem('pipelineState', JSON.stringify({ step: s.step, projectFiles }));
+      }
+    }
+  } catch {}
 }
 function startPoll() { stopPoll(); pollTimer = setInterval(fetchState, 800); }
 function stopPoll() { if (pollTimer) clearInterval(pollTimer); }
+
+/* ── Drag-and-drop file upload ── */
+const dropArea = document.getElementById('goal-input')?.parentElement;
+if (dropArea) {
+  dropArea.addEventListener('dragover', (e) => { e.preventDefault(); dropArea.style.opacity = '0.7'; });
+  dropArea.addEventListener('dragleave', () => { dropArea.style.opacity = '1'; });
+  dropArea.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    dropArea.style.opacity = '1';
+    const files = Array.from(e.dataTransfer.files);
+    for (const f of files) {
+      let content = '';
+      if (f.type.startsWith('text/') || /\.(js|html|css|json|md|txt)$/i.test(f.name)) {
+        content = await f.text();
+      } else content = `[Binary file: ${f.name} - ${f.size} bytes]`;
+      attachedFiles.push({ name: f.name, content });
+    }
+    $('#file-count').textContent = `${attachedFiles.length} file(s)`;
+    const goal = $('#goal-input');
+    if (attachedFiles.length && !goal.value.includes('Attached files:')) {
+      goal.value += `\n\nAttached files:\n${attachedFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 1500)}`).join('\n')}`;
+    }
+  });
+}
 
 /* ── File upload ── */
 $('#file-upload')?.addEventListener('change', async e => {
@@ -496,25 +598,33 @@ $('#file-upload')?.addEventListener('change', async e => {
 });
 
 /* ── Chat history ── */
-async function renderChatList() {
+async function renderChatList(filter) {
   const chats = await listChats();
   const list = $('#chat-list');
   if (!list) return;
-  list.innerHTML = chats.map(c =>
-    `<div class="chat-item ${c.id===currentChatId?'active':''}" data-id="${c.id}">
-      <div class="chat-title">${escapeHtml(c.title)}</div>
-      <div class="chat-meta"><span>${new Date(c.timestamp).toLocaleDateString()}</span><button class="del-chat" data-id="${c.id}" style="background:none;border:none;color:red;cursor:pointer;font-size:14px">×</button></div>
-    </div>`
-  ).join('');
+  const searchInput = list.querySelector('#chat-search');
+  list.innerHTML = '';
+  if (searchInput) list.appendChild(searchInput);
+  const filtered = filter ? chats.filter(c => (c.title || '').toLowerCase().includes(filter.toLowerCase())) : chats;
+  filtered.forEach(c => {
+    const div = document.createElement('div');
+    div.className = `chat-item ${c.id===currentChatId?'active':''}`;
+    div.dataset.id = c.id;
+    div.innerHTML = `<div class="chat-title">${escapeHtml(c.title)}</div><div class="chat-meta"><span>${new Date(c.timestamp).toLocaleDateString()}</span><button class="del-chat" data-id="${c.id}" style="background:none;border:none;color:red;cursor:pointer;font-size:14px">×</button></div>`;
+    list.appendChild(div);
+  });
   list.querySelectorAll('.chat-item').forEach(el => {
     el.addEventListener('click', (e) => { if (!e.target.classList.contains('del-chat')) selectChat(el.dataset.id); });
     el.querySelector('.del-chat')?.addEventListener('click', async (e) => {
       e.stopPropagation();
       await deleteChat(el.dataset.id);
       if (currentChatId === el.dataset.id) newChat();
-      renderChatList();
+      renderChatList(document.getElementById('chat-search')?.value);
     });
   });
+  if (searchInput) {
+    searchInput.oninput = () => renderChatList(searchInput.value);
+  }
 }
 
 async function selectChat(id) {

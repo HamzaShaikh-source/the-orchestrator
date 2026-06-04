@@ -1,8 +1,9 @@
 (function() {
   'use strict';
 
+  /* Auto-healing selectors for ChatGPT */
   const S = {
-    input: ['#prompt-textarea', 'textarea', 'div[contenteditable="true"]'],
+    input: ['#prompt-textarea', 'textarea', 'div[contenteditable="true"]', '[contenteditable]'],
     submit: [
       'button[data-testid="send-button"]',
       'button[aria-label*="Send"]:not([disabled])',
@@ -15,16 +16,59 @@
     ],
   };
 
+  function findInput() {
+    for (const s of S.input) {
+      const el = document.querySelector(s);
+      if (el) return el;
+    }
+    /* Auto-heal: find textarea or contenteditable anywhere */
+    return document.querySelector('textarea:not([disabled])') || 
+           document.querySelector('[contenteditable="true"]');
+  }
+
+  function findSubmitBtn() {
+    for (const s of S.submit) {
+      const el = document.querySelector(s);
+      if (el && !el.disabled && el.offsetHeight > 0) return el;
+    }
+    /* Auto-heal: find send-like button near input */
+    const input = findInput();
+    if (input) {
+      const area = input.closest('[class*="composer"], [class*="input"], section, div') || input.parentElement;
+      if (area) {
+        const btns = area.querySelectorAll('button:not([disabled])');
+        for (const b of btns) {
+          if (b.offsetHeight > 0) {
+            const label = (b.ariaLabel || b.textContent || '').toLowerCase();
+            if (label.includes('send') || b.className.includes('submit')) return b;
+          }
+        }
+        /* Last button in the area */
+        for (let i = btns.length - 1; i >= 0; i--) {
+          if (btns[i].offsetHeight > 0) return btns[i];
+        }
+      }
+    }
+    return null;
+  }
+
+  function getResponses() {
+    for (const s of S.response) {
+      const els = document.querySelectorAll(s);
+      if (els.length > 0) return els;
+    }
+    /* Auto-heal: find any message-like elements */
+    const candidates = document.querySelectorAll('[class*="message"], [class*="conversation"], article, [data-testid*="turn"]');
+    if (candidates.length > 0) return candidates;
+    return null;
+  }
+
   let lastInjected = '';
   let baselineCount = 0;
 
-  /* Try to dismiss ChatGPT welcome/onboarding dialogs */
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
   function dismissWelcome() {
-    /* Send Escape key to dismiss overlays */
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true }));
-    /* Click on the main area to dismiss focused dialogs */
     const main = document.querySelector('main, [class*="composer"], [class*="conversation"]');
     if (main) main.click();
   }
@@ -33,13 +77,13 @@
     (async () => {
       switch (msg.action) {
         case 'ping': return { ok: true };
-
         case 'inject': {
           dismissWelcome();
-          await sleep(500);
-          const el = S.input.reduce((found, s) => found || document.querySelector(s), null);
+          await new Promise(r => setTimeout(r, 500));
+          const el = findInput();
           if (!el) throw new Error('ChatGPT: input not found');
-          baselineCount = document.querySelectorAll(S.response.join(',')).length;
+          const responses = getResponses();
+          baselineCount = responses ? responses.length : 0;
           lastInjected = msg.text;
           el.focus();
           if (el.tagName === 'TEXTAREA') {
@@ -50,59 +94,38 @@
             p.textContent = msg.text;
             el.appendChild(p);
           }
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: msg.text }));
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
-          el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
+          el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
           return { ok: true };
         }
-
         case 'submit': {
           const btn = await waitForButton();
           if (!btn) throw new Error('ChatGPT: submit button not found');
           btn.click();
           return { ok: true };
         }
-
         case 'read': {
           let text = '';
-          const responses = document.querySelectorAll(S.response.join(','));
-          for (let i = responses.length - 1; i >= baselineCount; i--) {
-            const t = responses[i].innerText?.trim();
-            /* Skip short/placeholder responses like "Edit" (DALL-E placeholder) */
-            if (!t || t.length < 5 || t === 'Edit' || t === 'edit') {
-              /* Check for generated images */
-              const img = responses[i].querySelector('img[alt*="Generated"]');
-              if (img) { text = img.getAttribute('alt') || ''; break; }
-              continue;
+          const responses = getResponses();
+          if (responses) {
+            for (let i = responses.length - 1; i >= baselineCount; i--) {
+              if (i < 0) break;
+              const t = responses[i]?.innerText?.trim();
+              if (!t || t.length < 5 || t === 'Edit' || t === 'edit') {
+                const img = responses[i]?.querySelector('img[alt*="Generated"]');
+                if (img) { text = img.getAttribute('alt') || ''; break; }
+                continue;
+              }
+              if (t && !t.includes(lastInjected)) { text = t; break; }
             }
-            if (t && !t.includes(lastInjected)) { text = t; break; }
           }
           return { text };
         }
-
         case 'checkLogin': {
           const hasLogin = [...document.querySelectorAll('a, button')].some(el => /log in|sign in|sign up/i.test(el.innerText));
           return { loggedIn: !hasLogin };
         }
-
-        case 'isGenerating': {
-          /* ChatGPT: during generation, the send button becomes a stop square. Check for stop button first. */
-          const allBtns = document.querySelectorAll('button');
-          for (const btn of allBtns) {
-            if (btn.offsetHeight === 0) continue;
-            const ariaLabel = (btn.ariaLabel || '').toLowerCase();
-            const text = (btn.textContent || '').toLowerCase();
-            if (ariaLabel.includes('stop') || text.includes('stop') || btn.className.includes('stop')) {
-              return { generating: true };
-            }
-          }
-          /* Check send button state */
-          const sendBtn = document.querySelector('button[data-testid="send-button"]');
-          if (sendBtn && sendBtn.disabled) return { generating: true };
-          if (sendBtn && !sendBtn.disabled) return { generating: false };
-          return { generating: false };
-        }
-
         default:
           throw new Error('Unknown action: ' + msg.action);
       }
@@ -115,19 +138,8 @@
   async function waitForButton(timeout = 15000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
-      for (const sel of S.submit) {
-        const btn = document.querySelector(sel);
-        if (btn && !btn.disabled && btn.offsetParent !== null) return btn;
-      }
-      /* Fallback: any enabled button in composer area */
-      const composer = document.querySelector('[class*="composer"]');
-      if (composer) {
-        const btns = composer.querySelectorAll('button:not([disabled])');
-        for (const b of btns) {
-          const label = (b.ariaLabel || b.textContent || '').toLowerCase();
-          if (label.includes('send') || b.className.includes('submit')) return b;
-        }
-      }
+      const btn = findSubmitBtn();
+      if (btn) return btn;
       await new Promise(r => setTimeout(r, 500));
     }
     return null;
