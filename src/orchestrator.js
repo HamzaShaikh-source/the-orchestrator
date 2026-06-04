@@ -90,13 +90,88 @@ function friendlyError(err, agentName) {
   const msg = (err?.message || err || '').toLowerCase();
   if (msg.includes('content_script')) return `${agentName}'s page needs a refresh. Open ${agentName}, refresh, and try again.`;
   if (msg.includes('submit')) return `${agentName}'s send button couldn't be found. The UI may have changed.`;
-  if (msg.includes('timeout')) return `${agentName} took too long to respond. Try again later.`;
   if (msg.includes('inject')) return `Couldn't type into ${agentName}'s input field.`;
+  if (msg.includes('timeout') || msg.includes('poll')) return `${agentName} took too long to respond. Try again later.`;
   if (msg.includes('cancel')) return 'Cancelled.';
-  return `Something went wrong with ${agentName}: ${err?.message || err}`;
+  return `${agentName}: ${err?.message || err}`;
 }
 
-/* ── Brain: generate detailed task assignment for a specialist ── */
+async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal, projectFiles = {}) {
+  const maxRetries = 2;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (multiCancelled) throw new CancelError();
+    if (attempt > 1) {
+      console.log(`[Orch] Retry #${attempt} for ${agent.name}`);
+      const oldTab = usedTabs[agent.id];
+      if (oldTab?.id) try { await chrome.tabs.remove(oldTab.id); } catch {}
+      delete usedTabs[agent.id];
+    }
+
+    try {
+      const tab = await ensureTab(agent, usedTabs, manualUrls);
+      await waitTab(tab.id);
+      await sleep(3000);
+
+      if (!(await waitForContentScript(tab.id))) {
+        throw new Error('content_script_not_detected');
+      }
+
+      /* Step 1: Get instruction (brain-written or direct) */
+      const uniqueAgents = new Set(tasks.map(t => t.assignedTo)).size;
+      let instruction;
+      if (uniqueAgents > 1) {
+        console.log(`[Brain] Writing task assignment for ${agent.name}...`);
+        await setMultiState({ step: 'brain-writing', brainPhase: `Brain preparing task for ${agent.name}...`, agentOutputs: { ...agentOutputs } });
+        instruction = await brainWriteTaskPrompt(task, agent, tasks, allAgentOutputs, goal, usedTabs, projectFiles);
+      } else {
+        instruction = buildTaskPrompt(task, tasks, allAgentOutputs, goal);
+      }
+
+      /* Step 2: Specialist executes */
+      console.log(`[Brain] ${agent.name} executing: ${task.description.slice(0, 50)}`);
+      await setMultiState({ step: 'brain-executing', brainPhase: `${agent.name} executing task...`, agentOutputs: { ...agentOutputs } });
+
+      let r = await send(tab.id, { action: 'inject', text: instruction });
+      if (r?.error) throw new Error(`inject_error: ${r.error}`);
+      await sleep(1500);
+
+      r = await send(tab.id, { action: 'submit' });
+      if (r?.error) throw new Error(`submit_error: ${r.error}`);
+
+      const specialistOutput = await pollWithProgress(tab.id, task.description, 120, agent.id, agentOutputs);
+      if (multiCancelled) throw new CancelError();
+
+      if (!specialistOutput || specialistOutput === '\u26a0\ufe0f Timeout') {
+        throw new Error('timeout: specialist did not respond');
+      }
+
+      /* Step 3: Heuristic review */
+      const finalOutput = await brainReviewOutput(task, agent, specialistOutput);
+
+      agentOutputs[agent.id] = { output: finalOutput, status: 'done', task: task.description, agent: agent.name };
+      task.status = 'done';
+      await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
+      await updateAgentConv(agent.id, tab.id);
+      return;
+
+    } catch (err) {
+      if (err instanceof CancelError) throw err;
+      lastError = err;
+      console.error(`[Orch] Attempt ${attempt}/${maxRetries} failed:`, err.message);
+      if (attempt < maxRetries) {
+        agentOutputs[agent.id] = { output: '', status: 'retrying', error: `Retrying...`, task: task.description, agent: agent.name };
+        await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
+      }
+    }
+  }
+
+  const friendly = friendlyError(lastError, agent.name);
+  agentOutputs[agent.id] = { output: '', status: 'error', error: friendly, task: task.description, agent: agent.name };
+  task.status = 'error';
+  await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
+}
 
 /* ── Poll with progress ── */
 
