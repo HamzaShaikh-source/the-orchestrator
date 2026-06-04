@@ -475,6 +475,9 @@ function newChat() {
   $('#status-text').textContent = 'Ready';
   $('#status-dot').className = 'status-dot';
   ['tasks-section', 'outputs-section', 'synth-section'].forEach(s => $(s)?.classList.add('hidden'));
+  /* Remove file panel from DOM */
+  const fp = document.getElementById('file-panel-output');
+  if (fp) fp.remove();
   renderAgentCards();
   renderChatList();
 }
@@ -487,6 +490,9 @@ $('#run-btn').addEventListener('click', async () => {
   if (!goal) { showToast('Enter a goal first', 'error'); return; }
   running = true;
   projectFiles = {}; /* Clear files from previous runs */
+  /* Remove old file panel */
+  const oldFp = document.getElementById('file-panel-output');
+  if (oldFp) oldFp.remove();
   attachedFiles = [];
   $('#run-btn').classList.add('hidden');
   $('#stop-btn').classList.remove('hidden');
