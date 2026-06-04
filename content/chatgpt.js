@@ -18,12 +18,25 @@
   let lastInjected = '';
   let baselineCount = 0;
 
+  /* Try to dismiss ChatGPT welcome/onboarding dialogs */
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function dismissWelcome() {
+    /* Send Escape key to dismiss overlays */
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true }));
+    /* Click on the main area to dismiss focused dialogs */
+    const main = document.querySelector('main, [class*="composer"], [class*="conversation"]');
+    if (main) main.click();
+  }
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     (async () => {
       switch (msg.action) {
         case 'ping': return { ok: true };
 
         case 'inject': {
+          dismissWelcome();
+          await sleep(500);
           const el = S.input.reduce((found, s) => found || document.querySelector(s), null);
           if (!el) throw new Error('ChatGPT: input not found');
           baselineCount = document.querySelectorAll(S.response.join(',')).length;
