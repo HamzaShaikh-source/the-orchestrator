@@ -20,6 +20,9 @@
       '[class*="ds-assistant"]',
       '[class*="ds-turn-"]',
       '[class*="markdown"]',
+      '[class*="ds-chat"]',
+      '[class*="ds-msg"]',
+      '[class*="conversation"]',
     ],
   };
 
@@ -79,23 +82,32 @@
     let els = $$(S.response);
     if (els && els.length > 0) return els;
     
-    /* Auto-heal: only look in the MAIN content area for likely response elements */
+    /* Auto-heal: carefully scan for response content */
     const mainArea = document.querySelector('main, [class*="conversation"], [class*="chat"], [class*="message"], [role="main"]') || document.body;
-    const textEls = mainArea.querySelectorAll('div, p, [class*="markdown"], [class*="content"], [class*="message"]');
+    const allEls = mainArea.querySelectorAll('div, p, section, article, [class*="markdown"], [class*="content"]');
     const candidates = [];
-    for (const el of textEls) {
+    for (const el of allEls) {
+      if (el.offsetHeight === 0) continue;
+      if (el.children.length > 5) continue; /* Skip containers with many children (likely layout) */
+      if (el.closest('[class*="input"]') || el.closest('[class*="composer"]') || el.closest('textarea')) continue;
       const text = (el.innerText || '').trim();
       if (text.length < 50) continue;
-      if (el.offsetHeight === 0) continue;
-      /* Skip elements clearly in input/composer areas */
-      if (el.closest('[class*="input"]') || el.closest('[class*="composer"]') || el.closest('textarea')) continue;
-      /* Skip known UI text */
-      if (text.includes('AI-generated') || text.includes('DeepThink') || text.includes('Search')) continue;
+      /* Filter out known UI text */
+      if (text.length < 200 && (text.includes('AI-generated') || text.includes('DeepThink'))) continue;
       candidates.push(el);
     }
     if (candidates.length > 0) {
+      /* Get the most specific elements (innermost) */
       const inner = candidates.filter(c => !candidates.some(other => other !== c && other.contains(c)));
-      return inner.length > 0 ? inner : candidates;
+      const best = inner.length > 0 ? inner : candidates;
+      /* Clean UI phrases from text */
+      best.forEach(el => {
+        let t = el.innerText || '';
+        t = t.replace(/AI-generated, for reference only/g, '');
+        t = t.replace(/Instant|DeepThink|Search/g, '').trim();
+        el._cleanText = t;
+      });
+      return best;
     }
     return null;
   }
@@ -141,6 +153,23 @@
         case 'read': {
           const text = readResponse() || '';
           return { text };
+        }
+        case 'readDeep': {
+          /* Deep scan: return the LARGEST text element that isn't the input */
+          const allDivs = document.querySelectorAll('div, p, section');
+          let best = '', bestLen = 0;
+          for (const el of allDivs) {
+            if (el.offsetHeight === 0) continue;
+            if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
+            const t = (el.innerText || '').trim();
+            if (t.length > bestLen && t.length < 50000) {
+              /* Skip known UI text */
+              if (t.includes('AI-generated') && t.length < 500) continue;
+              if (t === 'Instant' || t === 'DeepThink' || t === 'Search') continue;
+              best = t; bestLen = t.length;
+            }
+          }
+          return { text: best };
         }
         case 'checkLogin': {
           const loginKeywords = ['log in', 'sign in', 'sign up', 'register'];
@@ -199,7 +228,9 @@
     if (!els || els.length === 0) return '';
     for (let i = els.length - 1; i >= baselineAssistantCount; i--) {
       if (i < 0) break;
-      const t = els[i]?.innerText?.trim();
+      const raw = els[i]?.innerText?.trim() || '';
+      /* Use cleaned text if available, otherwise raw */
+      const t = els[i]._cleanText || raw;
       if (t && !isPlaceholder(t)) return t;
     }
     return '';

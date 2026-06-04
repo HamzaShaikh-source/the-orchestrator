@@ -199,6 +199,9 @@ async function poll(tabId, prompt, maxSec = 180) {
     await sleep(1000);
   }
   if (last && !PLACEHOLDER_RE.test(last) && last.length > 10 && !isEcho(last, prompt)) return last;
+  /* Last resort: try a deep scan for any text that appeared */
+  const deepScan = await send(tabId, { action: 'readDeep' });
+  if (deepScan?.text && deepScan.text.length > 20) return deepScan.text;
   return '\u26a0\ufe0f Timeout';
 }
 
