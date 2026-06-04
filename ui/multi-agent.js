@@ -1,6 +1,8 @@
 const $ = id => document.getElementById(id.replace('#', ''));
 let pollTimer = null, running = false, currentChatId = null, selectedAgents = [];
 let projectFiles = {}, attachedFiles = [];
+let taskStartTimes = {}; /* Track when each task started for time estimation */
+let pipelineStartTime = null; /* Track overall pipeline start */
 
 function showToast(msg, type = 'info') {
   const toast = document.createElement('div');
@@ -55,6 +57,7 @@ function renderTasks(tasks, editable) {
         <div class="tile-status ${t.status}">${t.status||'pending'}</div>
         <div class="tile-desc">${editable ? `<textarea data-index="${i}" class="tile-edit">${escapeHtml(t.description)}</textarea>` : escapeHtml(t.description)}</div>
         <div class="tile-agent">→ ${t.assignedTo || 'unassigned'}</div>
+        ${t.status === 'error' ? `<button class="retry-task" data-index="${i}" style="margin-top:6px;background:transparent;border:1px solid var(--danger);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--danger)">⟳ Retry</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -82,7 +85,7 @@ function renderOutputs(agentOutputs) {
         const text = data.output || data.error || 'Waiting...';
         return `<div class="output-card">
           <div class="header"><span>${agent.icon}</span> ${agent.name} <span style="margin-left:auto">${badge}</span></div>
-          <div class="body">${escapeHtml(text)}</div>
+          <div class="body">${highlightSyntax(text)}</div>
           <button class="copy-output" data-text="${escapeAttr(text)}" style="margin-top:8px;background:transparent;border:1px solid var(--line);border-radius:20px;padding:4px 12px;font-size:11px;cursor:pointer;color:var(--text-secondary)">📋 Copy</button>
         </div>`;
       }).join('')}
@@ -148,13 +151,14 @@ function renderFilePanel() {
     ${names.map(n => {
       const ext = n.split('.').pop();
       const icon = ext === 'html' ? '🌐' : ext === 'css' ? '🎨' : ext === 'js' ? '⚡' : ext === 'json' ? '📋' : ext === 'md' ? '📝' : '📄';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface-hover);border-radius:var(--radius-sm);border:1px solid var(--border)">
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface-hover);border-radius:var(--radius-sm);border:1px solid var(--border);cursor:pointer" class="file-item-clickable" data-name="${escapeAttr(n)}">
         <span style="font-size:1.2rem">${icon}</span>
         <div style="flex:1;min-width:0">
           <div style="font-family:monospace;font-size:0.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis">${escapeHtml(n)}</div>
           <div style="font-size:0.65rem;color:var(--text-muted)">${(projectFiles[n].length / 1024).toFixed(1)} KB</div>
         </div>
-        <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">📋</button>
+        <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">📋</button>
+        <button class="edit-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">✏️</button>
       </div>`;
     }).join('')}
     </div>
@@ -172,9 +176,24 @@ function renderFilePanel() {
 
   /* Wire up copy buttons */
   panel.querySelectorAll('.copy-file').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const content = projectFiles[btn.dataset.name] || '';
       navigator.clipboard.writeText(content).then(() => showToast('Copied ' + btn.dataset.name));
+    });
+  });
+
+  /* Wire up edit buttons — open file in modal for editing */
+  panel.querySelectorAll('.edit-file').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      const content = projectFiles[name] || '';
+      const newContent = prompt(`Edit ${name}:`, content.substring(0, 5000));
+      if (newContent !== null) {
+        projectFiles[name] = newContent;
+        showToast(`Saved ${name}`, 'success');
+      }
     });
   });
 
@@ -383,6 +402,16 @@ function render(state) {
     const done = state.tasks?.filter(t => t.status === 'done' || t.status === 'error').length || 0;
     $('#pd-progress-text').textContent = `Task ${done} of ${total}`;
     $('#pd-progress-fill').style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
+    /* Time estimation */
+    if (pipelineStartTime && done > 0) {
+      const elapsed = (Date.now() - pipelineStartTime) / 1000;
+      const avgPerTask = elapsed / done;
+      const remaining = Math.round(avgPerTask * (total - done));
+      const elapsedStr = elapsed > 60 ? `${Math.round(elapsed / 60)}m` : `${Math.round(elapsed)}s`;
+      const remainStr = remaining > 60 ? `${Math.round(remaining / 60)}m` : `${Math.round(remaining)}s`;
+      const timeEl = document.getElementById('pd-time');
+      if (timeEl) timeEl.textContent = `${elapsedStr} elapsed · ~${remainStr} remaining`;
+    }
 
     /* Generate background floating dots */
     if (!pd._dots) {
@@ -422,7 +451,14 @@ function render(state) {
     running = false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
     stopPoll();
     /* Ensure file panel renders on completion */
-    if (Object.keys(projectFiles).length > 0) renderFilePanel();
+    if (Object.keys(projectFiles).length > 0) {
+      renderFilePanel();
+      /* Auto-scroll to show files */
+      setTimeout(() => {
+        const fp = document.getElementById('file-panel-output');
+        if (fp) fp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
     /* Save project files to chat record */
     if (currentChatId && Object.keys(projectFiles).length > 0) {
       getChat(currentChatId).then(chat => {
@@ -520,6 +556,8 @@ $('#run-btn').addEventListener('click', async () => {
   const goal = $('#goal-input').value.trim();
   if (!goal) { showToast('Enter a goal first', 'error'); return; }
   running = true;
+  pipelineStartTime = Date.now();
+  taskStartTimes = {};
   projectFiles = {}; /* Clear files from previous runs */
   /* Remove old file panel */
   const oldFp = document.getElementById('file-panel-output');
@@ -562,8 +600,40 @@ $('#stop-btn').addEventListener('click', () => {
 $('#confirm-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({ action: 'confirmTasks' }));
 $('#cancel-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({ action: 'rejectTasks' }));
 
+/* ── Retry single task ── */
+document.addEventListener('click', (e) => {
+  const retryBtn = e.target.closest('.retry-task');
+  if (retryBtn) {
+    const idx = parseInt(retryBtn.dataset.index);
+    showToast('Retrying task...', 'info');
+    chrome.runtime.sendMessage({ action: 'retryTask', taskIndex: idx });
+  }
+});
+
+/* ── Keyboard shortcuts ── */
+document.addEventListener('keydown', (e) => {
+  /* Ctrl+Enter to run */
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if (!running) $('#run-btn')?.click();
+  }
+  /* Escape to stop */
+  if (e.key === 'Escape' && running) {
+    $('#stop-btn')?.click();
+  }
+});
+
 function escapeHtml(str) { return String(str).replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
 function escapeAttr(str) { return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function highlightSyntax(code) {
+  /* Simple syntax highlighting for HTML/CSS/JS */
+  let h = escapeHtml(code);
+  h = h.replace(/(&lt;\/?[a-zA-Z][^&]*&gt;)/g, '<span style="color:#e879f9">$1</span>'); /* HTML tags */
+  h = h.replace(/(\/\*[\s\S]*?\*\/|--[\s\S]*?$)/gm, '<span style="color:#6b7280">$1</span>'); /* Comments */
+  h = h.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span style="color:#f59e0b">$1</span>'); /* Strings */
+  h = h.replace(/\b(function|const|let|var|if|else|return|class|import|export|default|async|await|for|while|do|switch|case|break|continue|new|this|typeof|instanceof)\b/g, '<span style="color:#3b82f6">$1</span>'); /* Keywords */
+  h = h.replace(/\b(\d+\.?\d*)(px|rem|em|vh|vw|%|s|ms)?\b/g, '<span style="color:#22c55e">$1$2</span>'); /* Numbers + units */
+  return h;
+}
 
 /* ── Init ── */
 (async () => {

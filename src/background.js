@@ -242,6 +242,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.action === 'rejectTasks') {
     setMultiState({ tasksConfirmed: false }).then(() => sendResponse({ ok: true }));
     return true;
+  } else if (msg.action === 'retryTask') {
+    /* Retry a specific task by resetting its status */
+    getMultiState().then(s => {
+      const tasks = s.tasks || [];
+      if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) {
+        tasks[msg.taskIndex].status = 'pending';
+        setMultiState({ tasks: [...tasks], step: 'running' });
+      }
+    });
+    sendResponse({ ok: true });
+    return true;
   } else if (msg.action === 'downloadFile') {
     /* Download a file via base64 data */
     const byteStr = atob(msg.data);
