@@ -244,11 +244,6 @@ function renderFilePanel() {
       showToast('Downloaded project-files.zip');
     });
   }
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'project-files.zip'; a.click();
-      URL.revokeObjectURL(url); showToast('Downloaded project-files.zip');
-    });
-  }
 }
 
 function renderSynthesis(text) {
