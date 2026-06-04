@@ -22,7 +22,7 @@ Return ONLY valid JSON with no markdown:
 
 Select 2-4 agents. User goal:`;
 
-const BRAIN_ID = 'chatgpt';
+const BRAIN_ID = 'deepseek';
 
 /* ── Agent Selection ── */
 

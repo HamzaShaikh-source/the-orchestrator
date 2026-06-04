@@ -6,7 +6,7 @@
 async function planTasks(goal, usedTabs = {}) {
   console.log('[Planner] Planning tasks for:', goal.slice(0, 120));
 
-  const plannerId = 'chatgpt';
+  const plannerId = 'deepseek';
   const planner = getAgent(plannerId);
   if (!planner) throw new Error('No agent available for planning');
 
