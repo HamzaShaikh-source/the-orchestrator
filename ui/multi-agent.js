@@ -266,7 +266,31 @@ function renderFilePanel() {
       const merged = new Uint8Array(totalLen);
       let offset = 0;
       for (const c of chunks) { merged.set(c, offset); offset += c.length; }
-      const blob = new Blob([merged], {type:'application/zip'});
+      
+      /* Verify ZIP integrity: must end with 0x06054b50 signature */
+      const isValid = merged.length >= 22 && 
+        merged[merged.length - 22] === 0x50 && 
+        merged[merged.length - 21] === 0x4b &&
+        merged[merged.length - 20] === 0x05 &&
+        merged[merged.length - 19] === 0x06;
+      
+      if (!isValid) {
+        showToast('ZIP generation error - try exporting as Markdown instead', 'error');
+        return;
+      }
+      
+      /* Use chrome.downloads API for reliable download */
+      const blob = new Blob([merged], {type:'application/octet-stream'});
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1];
+        chrome.runtime.sendMessage({
+          action: 'downloadFile',
+          filename: 'project-files.zip',
+          data: base64
+        });
+      };
+      reader.readAsDataURL(blob);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = 'project-files.zip'; a.click();
       URL.revokeObjectURL(url); showToast('Downloaded project-files.zip');

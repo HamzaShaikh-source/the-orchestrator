@@ -242,6 +242,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   } else if (msg.action === 'rejectTasks') {
     setMultiState({ tasksConfirmed: false }).then(() => sendResponse({ ok: true }));
     return true;
+  } else if (msg.action === 'downloadFile') {
+    /* Download a file via base64 data */
+    const byteStr = atob(msg.data);
+    const bytes = new Uint8Array(byteStr.length);
+    for (let i = 0; i < byteStr.length; i++) bytes[i] = byteStr.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'application/zip' });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({
+      url,
+      filename: msg.filename || 'download.zip',
+      saveAs: true
+    }).catch(err => {
+      /* Fallback to direct download */
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = msg.filename || 'download.zip';
+      a.click();
+    });
+    sendResponse({ ok: true });
+    return true;
   }
   return false;
 });
