@@ -322,7 +322,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       r = await send(tab.id, { action: 'submit' });
       if (r?.error) throw new Error(`submit_error: ${r.error}`);
 
-      const specialistOutput = await pollWithProgress(tab.id, task.description, 60, agent.id, agentOutputs);
+      const specialistOutput = await pollWithProgress(tab.id, task.description, 120, agent.id, agentOutputs);
       if (multiCancelled) throw new CancelError();
 
       if (!specialistOutput || specialistOutput === '\u26a0\ufe0f Timeout') {
@@ -363,6 +363,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
 async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
   let last = '';
   let stable = 0;
+  let maxLen = 0;
   let readFailures = 0;
   const isCancelled = () => cancelled || multiCancelled;
 
@@ -380,10 +381,23 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
     if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
       stable = 0; last = ''; await sleep(1000); continue;
     }
-    if (cur === last) stable++;
-    else if (cur) stable = 0;
-    last = cur;
 
+    /* Text is growing — still streaming, don't count as stable */
+    if (cur.length > maxLen) {
+      maxLen = cur.length;
+      stable = 0;
+      last = cur;
+    } else if (cur === last) {
+      stable++;
+      /* Require longer stability for longer texts */
+      const required = cur.length > 2000 ? 20 : cur.length > 500 ? 15 : 10;
+      if (stable >= required && cur.length > 10) return cur;
+    } else {
+      stable = 0;
+      last = cur;
+    }
+
+    /* Push progress updates to UI */
     if (cur.length > 20 && agentOutputs) {
       const existing = agentOutputs[agentId] || {};
       agentOutputs[agentId] = { ...existing, output: cur, status: 'streaming' };
@@ -394,10 +408,9 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
       }
     }
 
-    if (stable >= 3 && cur.length > 15) return cur;
     await sleep(1000);
   }
-  if (last && !PLACEHOLDER_RE.test(last) && last.length > 15 && !isEcho(last, prompt)) return last;
+  if (last && !PLACEHOLDER_RE.test(last) && last.length > 10 && !isEcho(last, prompt)) return last;
   return '\u26a0\ufe0f Timeout';
 }
 
