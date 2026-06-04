@@ -324,6 +324,8 @@ function render(state) {
   if (['done', 'error', 'cancelled'].includes(state.step)) {
     running = false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
     stopPoll();
+    /* Ensure file panel renders on completion */
+    if (Object.keys(projectFiles).length > 0) renderFilePanel();
     /* Save project files to chat record */
     if (currentChatId && Object.keys(projectFiles).length > 0) {
       getChat(currentChatId).then(chat => {
