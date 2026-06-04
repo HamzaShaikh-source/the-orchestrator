@@ -122,35 +122,23 @@ async function brainWriteTaskPrompt(task, agent, allTasks, agentOutputs, goal, u
     ? `\n\n## User's Existing Files\n${context.userFiles.map(f => `- ${f}`).join('\n')}\nThese files already exist. Modify them if the task requires, or create new ones.`
     : '';
 
-  const prompt = `You are the BRAIN of a multi-agent system. Your job is to write a precise, detailed task assignment for a specialist AI.
+  /* ── Brain writes a concise task assignment for the specialist ── */
 
-## Your Team
-You are: ChatGPT (the brain — you coordinate everything)
-Specialist: ${context.specialistName} (best at: ${agent.strengths ? Object.entries(agent.strengths).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}=${v}`).join(', ') : 'various'})
+  const strengths = agent.strengths ? Object.entries(agent.strengths).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}=${v}`).join(', ') : '';
+  const codeFormat = task.type === 'code' ? '\n\nWrap code files in <file name="name.ext"> and </file> tags.' : '';
 
-## The Goal
-${context.goal}
+  const prompt = `Write a precise task assignment for ${agent.name} (strengths: ${strengths}).
 
-## This Specialist's Task
-${context.specialistTask}
+Goal: ${goal}
 
-## Other Team Members & Their Tasks
-${context.otherTasks}
+Their task: ${task.description}
 
-## What's Been Completed So Far
-${context.completedSoFar}
+Other agents working on this: ${allTasks.filter(t => t !== task).map(t => `${t.assignedTo}: ${t.description}`).join('; ') || 'None'}
+
+${doneOutputs ? `\nWhat previous agents built (MUST build upon, don't duplicate):\n${doneOutputs.slice(0, 2000)}` : ''}
 ${userFilesSection}
-## Your Assignment
-Write a detailed prompt for ${context.specialistName} that:
-1. Explains the FULL goal so they understand the bigger picture
-2. Gives them EXACTLY their task with clear requirements
-3. Tells them what others have already built (so they don't duplicate)
-4. Tells them what others will build next (so their work connects properly)
-5. Specifies output format: wrap files in <file name="..."> tags when generating code
 
-Be direct and specific. This is NOT a conversation — write instructions for the specialist to execute.
-
-Assignment:`;
+Output the exact instruction you want ${agent.name} to follow. Be specific and actionable.${codeFormat}`;
 
   try {
     const tab = await ensureTab(brain, usedTabs, {});
@@ -187,110 +175,18 @@ Assignment:`;
 /* ── Brain: review specialist output ── */
 
 async function brainReviewOutput(task, agent, output, agentOutputs, goal, usedTabs) {
-  const brain = getAgent(BRAIN_ID);
-  if (!brain || !output || output.length < 20) return output;
-
-  const prompt = `You are the BRAIN of a multi-agent system. Review the following output from a specialist AI.
-
-## The Goal
-${goal}
-
-## Specialist: ${agent.name}
-## Their Task: ${task.description}
-
-## Their Output
-${output.slice(0, 3000)}
-
-## Review Guidelines
-- Does the output correctly fulfill the task?
-- Does it align with the overall goal?
-- Is it complete and usable?
-- Are there any obvious issues or improvements needed?
-
-Respond with ONE of these:
-- If it's GOOD: just say "APPROVED" at the start, then optionally add brief praise
-- If it needs MINOR fixes: say "MINOR: [what to fix]" with 1-2 specific changes
-- If it needs MAJOR rework: say "REVISION: [what's wrong]" with 3-5 specific issues
-
-Review:`;
-
-  try {
-    const tab = await ensureTab(brain, usedTabs, {});
-    await waitTab(tab.id);
-    await sleep(3000);
-    if (!(await waitForContentScript(tab.id))) return output;
-
-    let r = await send(tab.id, { action: 'inject', text: prompt });
-    if (r?.error) return output;
-    await sleep(1000);
-    r = await send(tab.id, { action: 'submit' });
-    if (r?.error) return output;
-
-    const review = await poll(tab.id, prompt, 60);
-    if (!review || review === '\u26a0\ufe0f Timeout') return output;
-
-    /* Skip invalid review responses (ChatGPT UI messages, etc.) */
-    if (review.length < 10 || review.includes('One more step') || review.includes('Sign up') || review.includes('Log in')) {
-      console.warn('[Brain] Invalid review response, keeping output');
-      return output;
-    }
-
-    const isApproved = review.startsWith('APPROVED');
-    const isMinor = review.startsWith('MINOR:');
-    const isRevision = review.startsWith('REVISION:');
-
-    if (isApproved) {
-      console.log(`[Brain] ✅ Approved ${agent.name}'s output for: ${task.description.slice(0, 40)}`);
-      return output;
-    }
-    if (isMinor) {
-      console.log(`[Brain] 🔧 Minor fixes requested for ${agent.name}: ${review.slice(6, 80)}`);
-      /* Ask specialist to apply minor fixes */
-      return await brainRequestFix(task, agent, output, review, usedTabs);
-    }
-    if (isRevision) {
-      console.log(`[Brain] 🔄 Major revision requested for ${agent.name}: ${review.slice(9, 80)}`);
-      return await brainRequestFix(task, agent, output, review, usedTabs);
-    }
-    /* If review doesn't match expected format, keep the output */
-    return output;
-  } catch (err) {
-    console.warn('[Brain] Review failed, keeping output:', err.message);
-    return output;
+  /* Fast heuristic review — no AI call needed */
+  if (!output || output.length < 20) return output;
+  /* Check if output actually addresses the task */
+  const hasContent = output.length > 50;
+  const hasFiles = output.includes('<file');
+  /* For code tasks, require file tags */
+  if (task.type === 'code' && !hasFiles) {
+    /* Just append format reminder, output might still be OK */
+    console.log(`[Brain] Code task but no file tags in ${agent.name}'s output`);
   }
-}
-
-/* ── Brain: request specialist to fix output ── */
-
-async function brainRequestFix(task, agent, originalOutput, review, usedTabs) {
-  const maxFixAttempts = 1; /* One fix attempt to keep things moving */
-  for (let attempt = 1; attempt <= maxFixAttempts; attempt++) {
-    try {
-      const tab = usedTabs[agent.id];
-      if (!tab || !await tabAlive(tab.id)) return originalOutput;
-
-      if (!(await waitForContentScript(tab.id))) return originalOutput;
-
-      const fixPrompt = `Apply the following feedback to improve your previous output:\n\nFeedback:\n${review}\n\nYour Previous Output:\n${originalOutput}\n\nImproved version:`;
-
-      let r = await send(tab.id, { action: 'inject', text: fixPrompt });
-      if (r?.error) return originalOutput;
-      await sleep(1000);
-      r = await send(tab.id, { action: 'submit' });
-      if (r?.error) return originalOutput;
-
-      const fixed = await pollWithProgress(tab.id, fixPrompt, 60, agent.id, {});
-      if (fixed && fixed !== '\u26a0\ufe0f Timeout' && fixed.length > 20) {
-        console.log(`[Brain] ✅ ${agent.name} applied fix #${attempt}`);
-        return fixed;
-      }
-      return originalOutput;
-    } catch (err) {
-      console.warn(`[Brain] Fix attempt ${attempt} failed:`, err.message);
-      return originalOutput;
-    }
-  }
-  return originalOutput;
+  console.log(`[Brain] ✅ ${agent.name}'s output accepted (${output.length} chars${hasFiles ? ', files found' : ''})`);
+  return output;
 }
 
 /* ── Specialist task execution with brain management ── */

@@ -12,24 +12,24 @@ async function planTasks(goal, usedTabs = {}) {
 
   const agentList = allActiveAgents().map(a => `- ${a.id}: ${a.name} (strengths: ${Object.entries(a.strengths).map(([k, v]) => `${k}=${v}`).join(', ')})`).join('\n');
 
-  const prompt = `You are a task planner for a multi-agent AI team. Break down the following goal into 3-6 specific subtasks.
+  const prompt = `Plan 3-5 specific subtasks for this goal. Each subtask must produce a concrete deliverable.
 
-For each subtask, output a JSON object with:
-- "description": what this subtask achieves (1-2 clear sentences). Include enough context so the agent understands how it fits into the bigger picture.
+For each subtask:
+- "description": what to build/create (1-2 sentences with specific output)
 - "type": one of [code, creative, research, analysis, writing, technical, design]
 
-RULES:
-1. Use DIFFERENT types for each subtask (vary them)
-2. Each subtask should be self-contained — the agent working on it should understand the full goal
-3. The first subtask should set the foundation, later ones build on previous work
-4. Output ONLY a valid JSON array, no markdown, no explanation
+Rules:
+- Each subtask must produce something TANGIBLE (code, content, design spec, research findings)
+- Use DIFFERENT types across subtasks
+- Later subtasks build on earlier ones
+- Output ONLY a valid JSON array
 
 Available agents:
 ${agentList}
 
 Goal: ${goal}
 
-Output: [{ "description": "...", "type": "..." }]`;
+Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`;
 
   let tab = usedTabs[planner.id];
   if (!tab || !await tabAlive(tab.id)) {
