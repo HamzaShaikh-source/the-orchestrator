@@ -54,18 +54,33 @@ async function checkForUpdate() {
 
 async function downloadLatestUpdate() {
   try {
-    /* Download ZIP via chrome.downloads API */
+    /* Download ZIP via chrome.downloads API — fixed filename so it overwrites each time */
     const downloadId = await new Promise((resolve, reject) => {
       chrome.downloads.download({
         url: GITHUB_ZIP,
         filename: 'the-orchestrator-update.zip',
         saveAs: false,
+        conflictAction: 'overwrite',
       }, (id) => {
         if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
         else resolve(id);
       });
     });
-    return { success: true, downloadId, message: 'Downloading latest version...' };
+    /* Wait for download to complete, then get the file path */
+    const path = await new Promise((resolve) => {
+      const handler = (delta) => {
+        if (delta.id === downloadId && delta.state?.current === 'complete') {
+          chrome.downloads.onChanged.removeListener(handler);
+          chrome.downloads.search({ id: downloadId }, (results) => {
+            resolve(results[0]?.filename || '');
+          });
+        }
+      };
+      chrome.downloads.onChanged.addListener(handler);
+      /* Timeout fallback */
+      setTimeout(() => { chrome.downloads.onChanged.removeListener(handler); resolve(''); }, 30000);
+    });
+    return { success: true, downloadId, path, message: 'Downloaded!' };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -272,6 +287,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     checkUpdate: () => { checkForUpdate().then(sendResponse); return true; },
     downloadUpdate: () => { downloadLatestUpdate().then(sendResponse); return true; },
     acknowledgeUpdate: () => { acknowledgeUpdate(msg.sha).then(() => sendResponse({ ok: true })); return true; },
+    openDownloads: () => { chrome.downloads.showDefaultFolder(); sendResponse({ ok: true }); return true; },
+    openExtensions: () => { chrome.tabs.create({ url: 'chrome://extensions', active: true }); sendResponse({ ok: true }); return true; },
   };
 
   const handler = handlers[msg.action];

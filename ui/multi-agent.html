@@ -228,17 +228,20 @@
           <div id="update-progress-fill" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--info));border-radius:4px;transition:width 0.5s ease;width:0%"></div>
         </div>
       </div>
-      <div id="update-instructions" style="display:none;background:var(--surface-hover);padding:16px;border-radius:var(--radius-sm);font-size:0.8rem;line-height:1.6">
-        <strong>📥 Downloaded to your Downloads folder</strong>
-        <ol style="margin:10px 0 0 18px;color:var(--text-secondary)">
-          <li><strong>Extract</strong> the ZIP file</li>
-          <li>Copy the <code>the-orchestrator-main</code> folder to where you keep the extension</li>
-          <li>Go to <code style="background:var(--surface);padding:2px 8px;border-radius:4px">chrome://extensions</code></li>
-          <li>Click ↻ <strong>Reload</strong> on The Orchestrator card</li>
-        </ol>
-        <p style="margin-top:10px;font-size:0.75rem;color:var(--text-muted)">The button below will reload the extension from disk after you've extracted the files.</p>
+      <div id="update-instructions" style="display:none;background:var(--surface-hover);padding:16px;border-radius:var(--radius-sm);font-size:0.8rem;line-height:1.8">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div>1️⃣ <strong>Open</strong> your Downloads folder</div>
+          <div>2️⃣ <strong>Extract</strong> <code>the-orchestrator-update.zip</code></div>
+          <div>3️⃣ <strong>Replace</strong> your existing extension folder with the extracted files</div>
+          <div>4️⃣ Click <strong>"Reload Extension"</strong> below</div>
+        </div>
       </div>
-      <button id="update-reload-btn" style="display:none;background:var(--accent);color:white;border:none;border-radius:40px;padding:12px;font-weight:600;cursor:pointer;font-size:0.9rem">🔄 Reload Extension (after extracting)</button>
+      <div id="update-open-folder" style="display:none;gap:8px;flex-wrap:wrap">
+        <button style="background:var(--surface);border:1px solid var(--border);border-radius:40px;padding:10px 18px;font-weight:500;cursor:pointer;font-size:0.8rem;color:var(--text)">📂 Open Downloads</button>
+        <button style="background:var(--surface);border:1px solid var(--border);border-radius:40px;padding:10px 18px;font-weight:500;cursor:pointer;font-size:0.8rem;color:var(--text)">🔧 Open Extensions</button>
+      </div>
+      <div id="update-open-ext" style="display:none;gap:8px;flex-wrap:wrap"></div>
+      <button id="update-reload-btn" style="display:none;background:var(--accent);color:white;border:none;border-radius:40px;padding:12px;font-weight:700;cursor:pointer;font-size:0.95rem">🔄 Reload Extension</button>
       <button id="update-download-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:12px;font-weight:600;cursor:pointer;font-size:0.9rem">⬇ Download Update</button>
       <button id="update-skip-btn" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.75rem;padding:8px">Remind later</button>
     </div>
