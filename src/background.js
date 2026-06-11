@@ -275,7 +275,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     multiStatus: () => { getMultiState().then(sendResponse); return true; },
     stopMulti: () => { multiCancelled = true; setMultiState({ step: 'cancelled', error: null }); return { ok: true }; },
     getAgentConvs: () => { chrome.storage.local.get('agentConvs').then(({ agentConvs }) => sendResponse(agentConvs || {})); return true; },
-    runMulti: () => { runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null, msg.projectFiles || {}); return { ok: true }; },
+    runMulti: () => { runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null, msg.projectFiles || {}, msg.settings || {}); return { ok: true }; },
     loginRetry: () => { loginRetryRequested = true; return { ok: true }; },
     listChats: () => { listChats().then(sendResponse); return true; },
     getChat: () => { getChat(msg.chatId).then(sendResponse); return true; },

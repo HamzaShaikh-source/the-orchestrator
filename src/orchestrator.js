@@ -14,6 +14,7 @@ Return ONLY valid JSON with no markdown:
 Select 2-4 agents. User goal:`;
 
 const BRAIN_ID = 'deepseek';
+const DEFAULT_RUN_SETTINGS = { retries: 2, maxAgents: 4 };
 
 /* ── Agent Selection ── */
 async function aiSelectAgents(goal, usedTabs) {
@@ -101,8 +102,9 @@ function orderTasksByDependency(tasks) {
   });
 }
 
-async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal, projectFiles = {}, taskKey) {
-  const maxRetries = 2;
+async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal, projectFiles = {}, taskKey, runSettings = DEFAULT_RUN_SETTINGS) {
+  const maxRetries = Math.max(1, Math.min(5, Number(runSettings.retries) || DEFAULT_RUN_SETTINGS.retries));
+  const outputKey = taskKey || agent.id;
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -134,7 +136,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
        * The brain write step was causing response contamination (planner JSON
        * leaking into specialist instructions). buildTaskPrompt produces clean,
        * direct instructions without extra polling. */
-      const instruction = buildTaskPrompt(task, tasks, allAgentOutputs, goal);
+      const instruction = buildTaskPrompt({ ...task, projectFiles }, tasks, allAgentOutputs, goal);
 
       /* Specialist executes */
       console.log(`[Brain] ${agent.name} executing: ${task.description.slice(0, 50)}`);
@@ -150,7 +152,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       r = await send(tab.id, { action: 'submit' });
       if (r?.error) throw new Error(`submit: ${r.error}`);
 
-      const specialistOutput = await pollWithProgress(tab.id, task.description, 120, agent.id, agentOutputs);
+      const specialistOutput = await pollWithProgress(tab.id, task.description, 120, outputKey, agentOutputs, agent.id);
       if (multiCancelled) throw new CancelError();
 
       if (!specialistOutput || specialistOutput === '\u26a0\ufe0f Timeout') {
@@ -160,10 +162,11 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       /* Heuristic review */
       const finalOutput = await brainReviewOutput(task, agent, specialistOutput);
 
-      agentOutputs[agent.id] = { output: finalOutput, status: 'done', task: task.description, agent: agent.name };
+      agentOutputs[outputKey] = { output: finalOutput, status: 'done', task: task.description, agent: agent.name, agentId: agent.id };
       task.status = 'done';
       await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
       await updateAgentConv(agent.id, tab.id);
+      await recordAgentResult(agent.id, true);
       return;
 
     } catch (err) {
@@ -171,20 +174,21 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       lastError = err;
       console.error(`[Orch] Attempt ${attempt}/${maxRetries} failed:`, err.message);
       if (attempt < maxRetries) {
-        agentOutputs[agent.id] = { output: '', status: 'retrying', error: `Retry ${attempt}...`, task: task.description, agent: agent.name };
+        agentOutputs[outputKey] = { output: '', status: 'retrying', error: `Retry ${attempt}...`, task: task.description, agent: agent.name, agentId: agent.id };
         await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
       }
     }
   }
 
   const friendly = friendlyError(lastError, agent.name);
-  agentOutputs[agent.id] = { output: '', status: 'error', error: friendly, task: task.description, agent: agent.name };
+  agentOutputs[outputKey] = { output: '', status: 'error', error: friendly, task: task.description, agent: agent.name, agentId: agent.id };
   task.status = 'error';
   await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
+  await recordAgentResult(agent.id, false);
 }
 
 /* ── Poll with progress ── */
-async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
+async function pollWithProgress(tabId, prompt, maxSec, outputKey, agentOutputs, agentId) {
   let last = '';
   let stable = 0;
   let maxLen = 0;
@@ -221,11 +225,11 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
 
     /* Push progress to UI */
     if (cur.length > 20 && agentOutputs) {
-      const existing = agentOutputs[agentId] || {};
-      agentOutputs[agentId] = { ...existing, output: cur, status: 'streaming' };
+      const existing = agentOutputs[outputKey] || {};
+      agentOutputs[outputKey] = { ...existing, output: cur, status: 'streaming', agentId: agentId || existing.agentId };
       const state = await getMultiState();
       if (state.agentOutputs) {
-        state.agentOutputs[agentId] = agentOutputs[agentId];
+        state.agentOutputs[outputKey] = agentOutputs[outputKey];
         await setMultiState({ agentOutputs: { ...state.agentOutputs } });
       }
     }
@@ -237,7 +241,7 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
 }
 
 /* ── Main pipeline ── */
-async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = null, projectFiles = {}) {
+async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = null, projectFiles = {}, runSettings = DEFAULT_RUN_SETTINGS) {
   if (multiRunning) {
     await setMultiState({ step: 'error', error: 'Pipeline already running.' });
     return;
@@ -250,6 +254,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
 
   try {
     const usedTabs = {};
+    const settings = { ...DEFAULT_RUN_SETTINGS, ...(runSettings || {}) };
     let finalAgents = selectedAgents;
 
     /* ── 0a. Login Check ── */
@@ -270,11 +275,11 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       await setMultiState({ step: 'agent-selection' });
       const aiResult = await aiSelectAgents(goal, usedTabs);
       if (aiResult) {
-        finalAgents = aiResult.selected;
+        finalAgents = aiResult.selected.slice(0, settings.maxAgents);
         await setMultiState({ selectedAgents: finalAgents, agentReasoning: aiResult.reasoning });
       } else {
         const { selected } = selectAgents(goal);
-        finalAgents = selected;
+        finalAgents = selected.slice(0, settings.maxAgents);
         await setMultiState({ selectedAgents: finalAgents, agentReasoning: 'keyword fallback' });
       }
       const remaining = finalAgents.filter(id => id !== BRAIN_ID);
@@ -317,11 +322,11 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     }
     if (multiCancelled) throw new CancelError();
 
-    /* ── 3. Execute: ALL tasks in parallel ── */
+    /* ── 3. Execute: ALL tasks in PARALLEL ── */
     const agentOutputs = {};
     await setMultiState({ tasks: [...tasks], step: 'running' });
 
-    const allTaskPromises = tasks.map(async (task) => {
+    const allTaskPromises = tasks.map(async (task, taskIndex) => {
       if (multiCancelled) throw new CancelError();
       const agent = getAgent(task.assignedTo);
       if (!agent) { task.status = 'error'; return; }
@@ -330,10 +335,11 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
 
       try {
-        const taskKey = agent.id + '-' + tasks.indexOf(task);
-        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, taskKey);
+        const taskKey = `${agent.id}-${taskIndex}`;
+        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, taskKey, settings);
       } catch (err) {
         if (err instanceof CancelError) throw err;
+        task.status = 'error';
       }
     });
 
@@ -348,16 +354,14 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     const completedOutputs = Object.entries(agentOutputs).filter(([, d]) => d.status === 'done' && d.output && d.output.length > 50);
     
     if (completedOutputs.length > 0) {
-      /* Clean prompt — NO specialist summaries. Feeding DeepSeek raw design specs
-       * causes corrupted CSS (duplicated rules, floating declarations). A short
-       * direct prompt produces much cleaner code. */
+      /* Clean prompt — NO specialist summaries. Feeding DeepSeek raw specs
+       * causes corrupted CSS (duplicated rules, floating declarations). */
       const synthPrompt = `Generate a single self-contained HTML file for: ${goal}
 
 Rules:
 - All CSS in <style>, all JS in <script>
-- Semantic HTML5, responsive
-- Wrap the file in <file name="filename.ext"> and </file> tags
-- Clean, production-ready code only`;
+- Semantic HTML5, responsive, production-ready
+- Wrap the file in <file name="filename.ext"> and </file> tags`;
 
       const synthTab = usedTabs[BRAIN_ID];
       if (synthTab && (await tabAlive(synthTab.id)) && (await waitForContentScript(synthTab.id))) {
@@ -378,14 +382,12 @@ Rules:
           }
         }
       }
-      /* Fallback: scan ALL specialist outputs for <file> tags */
+      /* Fallback: concatenate all completed specialist outputs directly */
       if (!finalSynthesis) {
-        const allFileBlocks = [];
-        for (const [, d] of completedOutputs) {
-          const matches = d.output.match(/<file[\s\S]*?<\/file>/gi);
-          if (matches) allFileBlocks.push(...matches);
-        }
-        if (allFileBlocks.length > 0) finalSynthesis = allFileBlocks.join('\n');
+        finalSynthesis = completedOutputs.map(([id, d]) => d.output).join('\n\n');
+        /* Extract file tags if present */
+        const fileBlocks = finalSynthesis.match(/<file[\s\S]*?<\/file>/g);
+        if (fileBlocks) finalSynthesis = fileBlocks.join('\n');
       }
     }
 

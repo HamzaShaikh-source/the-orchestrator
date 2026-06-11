@@ -316,7 +316,22 @@ async function poll(tabId, prompt, maxSec = 180) {
   return '\u26a0\ufe0f Timeout';
 }
 
-function isEcho(text, prompt) { return false; }
+function isEcho(text, prompt) {
+  if (!text || !prompt) return false;
+  const clean = (value) => String(value)
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s]/g, '')
+    .trim();
+  const t = clean(text);
+  const p = clean(prompt);
+  if (!t || !p) return false;
+  if (t === p) return true;
+  if (t.length < 1000 && p.includes(t)) return true;
+  if (p.length < 1000 && t.includes(p)) return true;
+  const sample = p.slice(0, 300);
+  return sample.length > 80 && t.startsWith(sample);
+}
 
 /* ── Tab life-cycle management ── */
 function tabAlive(tabId) {

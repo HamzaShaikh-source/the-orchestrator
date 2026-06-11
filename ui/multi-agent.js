@@ -10,6 +10,15 @@ let _reconnectAttempts = 0;
 const SETTINGS_KEY = 'orchestratorSettings';
 const DEFAULT_SETTINGS = { retries:2, maxAgents:4, pollMs:1000, sound:true, notification:true, autoscroll:true, animSpeed:100 };
 let settings = { ...DEFAULT_SETTINGS };
+const SETTING_CONTROL_KEYS = {
+  retries: 'retries',
+  'max-agents': 'maxAgents',
+  'poll-ms': 'pollMs',
+  sound: 'sound',
+  notification: 'notification',
+  autoscroll: 'autoscroll',
+  'anim-speed': 'animSpeed',
+};
 
 function loadSettings() {
   try { const s = localStorage.getItem(SETTINGS_KEY); if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) }; } catch {}
@@ -18,10 +27,10 @@ function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
 }
 function applySettingsUI() {
-  ['retries','max-agents','poll-ms','sound','notification','autoscroll','anim-speed'].forEach(k => {
+  Object.keys(SETTING_CONTROL_KEYS).forEach(k => {
     const el = document.getElementById(`setting-${k}`);
     if (!el) return;
-    const key = k.replace('-','');
+    const key = SETTING_CONTROL_KEYS[k];
     if (el.classList.contains('toggle-switch')) el.classList.toggle('on', !!settings[key]);
     else el.value = settings[key];
   });
@@ -51,7 +60,9 @@ function renderAgentCards() {
     div.addEventListener('click', () => {
       if (running) return;
       const idx = selectedAgents.indexOf(a.id);
-      if (idx >= 0) selectedAgents.splice(idx, 1); else selectedAgents.push(a.id);
+      if (idx >= 0) selectedAgents.splice(idx, 1);
+      else if (selectedAgents.length < settings.maxAgents) selectedAgents.push(a.id);
+      else showToast(`Select up to ${settings.maxAgents} agents`, 'error');
       renderAgentCards();
     });
     div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', a.id); div.style.opacity='0.4'; });
@@ -117,7 +128,7 @@ function renderOutputs(ao) {
       <button id="toggle-outputs" style="background:none;border:1px solid var(--border);border-radius:40px;padding:4px 14px;font-size:0.75rem;cursor:pointer;color:var(--text-secondary)">Show details</button>
     </div>
     <div id="outputs-detail" style="display:none">${Object.entries(ao).map(([id,data])=>{
-      const a = getAgent(id); if(!a) return '';
+      const a = getAgent(data.agentId || id.split('-')[0]); if(!a) return '';
       const badge = data.status==='streaming'?'⏳':data.status==='done'?'✅':data.status==='error'?'❌':'';
       const text = data.output||data.error||'Waiting...';
       return `<div class="output-card" style="animation-delay:${Object.keys(ao).indexOf(id)*50}ms">
@@ -496,9 +507,9 @@ $('#run-btn').addEventListener('click', async () => {
   const goal = $('#goal-input').value.trim();
   if (!goal) { showToast('Enter a goal first','error'); return; }
   running = true; _reconnectAttempts = 0; pipelineStartTime = Date.now();
+  const inputFiles = Object.fromEntries(attachedFiles.map(f => [f.name, f.content]));
   projectFiles = {};
   const oldFp = document.getElementById('file-panel-output'); if (oldFp) oldFp.remove();
-  attachedFiles = [];
   try { localStorage.setItem('lastGoal', goal); } catch {}
   $('#run-btn').classList.add('hidden'); $('#stop-btn').classList.remove('hidden');
   $('#status-dot').className = 'status-dot working'; $('#status-text').textContent = 'Starting...';
@@ -513,7 +524,7 @@ $('#run-btn').addEventListener('click', async () => {
 
   chrome.runtime.sendMessage({ action:'runMulti', goal,
     selectedAgents: selectedAgents.length ? selectedAgents : null,
-    chatId: currentChatId, projectFiles,
+    chatId: currentChatId, projectFiles: inputFiles, settings,
   });
 });
 $('#stop-btn').addEventListener('click', () => {
@@ -569,7 +580,7 @@ function initSettings() {
   loadSettings(); applySettingsUI();
   const bindToggle=(id,key)=>{const el=document.getElementById(id);if(!el)return;el.addEventListener('click',()=>{settings[key]=!settings[key];el.classList.toggle('on');saveSettings();});};
   bindToggle('setting-sound','sound'); bindToggle('setting-notification','notification'); bindToggle('setting-autoscroll','autoscroll');
-  ['retries','max-agents','poll-ms','anim-speed'].forEach(k=>{const el=document.getElementById(`setting-${k}`);if(!el)return;el.addEventListener('change',()=>{settings[k.replace('-','')]=parseInt(el.value);saveSettings();});});
+  ['retries','max-agents','poll-ms','anim-speed'].forEach(k=>{const el=document.getElementById(`setting-${k}`);if(!el)return;el.addEventListener('change',()=>{settings[SETTING_CONTROL_KEYS[k]]=parseInt(el.value,10);saveSettings();renderAgentCards();});});
   $('#settings-reset')?.addEventListener('click',()=>{if(!confirm('Reset settings?'))return;settings={...DEFAULT_SETTINGS};saveSettings();applySettingsUI();showToast('Reset');});
 }
 
@@ -582,7 +593,7 @@ async function checkUpdate() {
     const r = await chrome.runtime.sendMessage({ action: 'checkUpdate' });
     if (r?.available && r?.latestSha) {
       _updateSha = r.latestSha;
-      _updateMsg = r.commitMsg || 'Update available';
+      _updateMsg = r.message || 'Update available';
       const btn = document.getElementById('update-btn');
       if (btn) { btn.style.display = ''; btn.title = _updateMsg; }
     }

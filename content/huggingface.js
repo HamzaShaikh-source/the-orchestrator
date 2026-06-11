@@ -37,8 +37,16 @@
           baselineCount = ($$(S.response)?.length || 0);
           lastInjected = msg.text || '';
           el.focus();
-          el.value = msg.text;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
+          if (typeof el.value !== 'undefined') {
+            el.value = msg.text;
+          } else {
+            el.innerHTML = '';
+            const p = document.createElement('p');
+            p.textContent = msg.text;
+            el.appendChild(p);
+          }
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: msg.text }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
           console.log('[HF] Injected:', msg.text.slice(0, 60));
           return { ok: true };
         }

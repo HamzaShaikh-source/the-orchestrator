@@ -61,22 +61,13 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
 
   const raw = await poll(tab.id, prompt, 120);
 
-  let tasks = [];
-  try {
-    tasks = JSON.parse(raw);
-  } catch {
-    /* Try to extract JSON array from markdown-wrapped response */
-    const match = raw.match(/\[[\s\S]*\]/);
-    if (match) {
-      try { tasks = JSON.parse(match[0]); } catch {}
-    }
-  }
+  let tasks = parsePlannerTasks(raw);
 
   /* If JSON parsing failed, try to fix common issues */
   if (!Array.isArray(tasks) || tasks.length === 0) {
     try {
       /* Attempt: remove trailing commas, fix single quotes */
-      let fixed = raw
+      let fixed = String(raw || '')
         .replace(/,\s*\]/g, ']')
         .replace(/,\s*\}/g, '}')
         .replace(/'/g, '"')
@@ -97,6 +88,59 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
     ];
   }
 
+  tasks = normalizePlannerTasks(tasks, goal);
   console.log('[Planner] Generated', tasks.length, 'tasks');
   return tasks;
+}
+
+function parsePlannerTasks(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return [];
+  const candidates = [
+    text,
+    text.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim(),
+    (text.match(/\[[\s\S]*\]/) || [])[0],
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [];
+}
+
+function normalizePlannerTasks(tasks, goal) {
+  const allowed = new Set(['code', 'creative', 'research', 'analysis', 'writing', 'design', 'planning', 'technical']);
+  const aliases = {
+    ui: 'design',
+    ux: 'design',
+    frontend: 'code',
+    backend: 'code',
+    test: 'technical',
+    testing: 'technical',
+    docs: 'writing',
+    documentation: 'writing',
+    architecture: 'planning',
+  };
+
+  const cleaned = tasks
+    .map((task, index) => {
+      const type = aliases[String(task?.type || '').toLowerCase()] || String(task?.type || '').toLowerCase();
+      const description = String(task?.description || task?.task || task?.title || '').trim();
+      return {
+        description: description || `Complete step ${index + 1} for: ${goal}`,
+        type: allowed.has(type) ? type : (index === 0 ? 'analysis' : 'technical'),
+        status: 'pending',
+      };
+    })
+    .filter(task => task.description.length > 0)
+    .slice(0, 5);
+
+  if (!cleaned.some(task => task.type === 'code') && /build|app|site|code|implement|create/i.test(goal)) {
+    cleaned.push({ description: `Build the main implementation for: ${goal}`, type: 'code', status: 'pending' });
+  }
+
+  return cleaned.slice(0, 5);
 }

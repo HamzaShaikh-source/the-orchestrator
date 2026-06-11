@@ -5,6 +5,7 @@ function buildTaskPrompt(task, allTasks, allOutputs, goal) {
   const otherTasks = allTasks.filter(t => t !== task);
   const doneTasks = otherTasks.filter(t => t.status === 'done');
   const pendingTasks = otherTasks.filter(t => t.status !== 'done');
+  const files = task.projectFiles || {};
 
   const existingFiles = [];
   if (allOutputs) {
@@ -15,12 +16,26 @@ function buildTaskPrompt(task, allTasks, allOutputs, goal) {
       }
     }
   }
+  const fileContext = Object.entries(files).slice(0, 8).map(([name, content]) => {
+    const text = String(content || '').slice(0, 4000);
+    return `### ${name}\n${text}`;
+  }).join('\n\n');
 
   let parts = [];
   parts.push(`## The Goal\n${goal}\n`);
   parts.push(`## Your Role\nYou are acting as "${role}". Your specific task: ${task.description}\n`);
+  if (fileContext) {
+    parts.push(`## User-Provided Project Files\nUse these files as source context. Preserve user intent and avoid discarding existing work.\n\n${fileContext}\n`);
+  }
   if (doneTasks.length > 0) {
     parts.push(`## What Other Agents Have Already Completed\n${doneTasks.map(t => `- ${t.assignedTo || 'agent'}: ${t.description}`).join('\n')}\n`);
+  }
+  const completedOutputContext = Object.entries(allOutputs || {})
+    .filter(([, d]) => d.status === 'done' && d.output)
+    .map(([, d]) => `### ${d.agent || d.agentId || 'Agent'}\n${String(d.output).slice(0, 2500)}`)
+    .join('\n\n');
+  if (completedOutputContext) {
+    parts.push(`## Completed Agent Outputs To Build On\n${completedOutputContext}\n`);
   }
   if (pendingTasks.length > 0) {
     parts.push(`## What Other Agents Are Working On\n${pendingTasks.map(t => `- ${t.assignedTo || 'agent'}: ${t.description}`).join('\n')}\n`);
@@ -29,7 +44,9 @@ function buildTaskPrompt(task, allTasks, allOutputs, goal) {
     parts.push(`## Already Created Files\n${[...new Set(existingFiles)].join(', ')}\nOnly create NEW files not in this list.\n`);
   }
   if (task.type === 'code') {
-    parts.push(`## Output Format\nWrap files in <file name="filename.ext"> and </file> tags.\nExample:\n<file name="index.html">\n<!DOCTYPE html>\n<html>\n</file>`);
+    parts.push(`## Output Format\nReturn complete, directly usable code. Wrap every generated or changed file in <file name="filename.ext"> and </file> tags.\nExample:\n<file name="index.html">\n<!DOCTYPE html>\n<html>\n</file>`);
+  } else {
+    parts.push(`## Output Quality\nBe specific, actionable, and concise. Include decisions, assumptions, and handoff notes that the next agent can use.`);
   }
   return parts.join('\n---\n');
 }
