@@ -81,7 +81,6 @@
           const el = getInput();
           if (!el) throw new Error('DeepSeek: input not found');
           lastInjected = msg.text;
-          pageSnapshot = getPageText();
           el.focus();
           if (typeof el.value !== 'undefined') {
             el.value = msg.text;
@@ -93,6 +92,15 @@
           el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
           el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+          /* Save snapshot AFTER injection so the prompt text is included.
+           * This prevents read() from returning the prompt as "new content". */
+          pageSnapshot = getPageText();
+          return { ok: true };
+        }
+        case 'reset': {
+          /* Reset tracking so next read() starts fresh */
+          pageSnapshot = getPageText();
+          lastInjected = '';
           return { ok: true };
         }
 

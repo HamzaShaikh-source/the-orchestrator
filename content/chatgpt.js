@@ -175,6 +175,13 @@
           }
           return { text: best };
         }
+        case 'reset': {
+          pageSnapshot = getPageText();
+          const responses = getResponses();
+          baselineCount = responses ? responses.length : 0;
+          lastInjected = '';
+          return { ok: true };
+        }
         case 'checkLogin': {
           const hasLogin = [...document.querySelectorAll('a, button')].some(el => /log in|sign in|sign up/i.test(el.innerText));
           return { loggedIn: !hasLogin };

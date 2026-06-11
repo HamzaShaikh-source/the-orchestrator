@@ -130,14 +130,23 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
         throw new Error('content_script_not_detected');
       }
 
-      /* Get instruction — skip brain writing if all tasks go to same agent */
+      /* Get instruction.
+       * Skip brain writing when:
+       * 1. All tasks go to the same agent (brain not needed)
+       * 2. The target agent IS the brain (no need to self-instruct) */
       const assignedAgents = tasks.map(t => t.assignedTo).filter(Boolean);
       const allSameAgent = assignedAgents.length > 0 && assignedAgents.every(a => a === assignedAgents[0]);
+      const targetIsBrain = agent.id === BRAIN_ID;
       let instruction;
-      if (!allSameAgent) {
+      if (!allSameAgent && !targetIsBrain) {
         console.log(`[Brain] Writing task assignment for ${agent.name}...`);
         await setMultiState({ step: 'brain-writing', brainPhase: `Brain preparing task for ${agent.name}...`, agentOutputs: { ...agentOutputs } });
         instruction = await brainWriteTaskPrompt(task, agent, tasks, allAgentOutputs, goal, usedTabs, projectFiles);
+        /* CRITICAL: Reset the brain tab so its previous response is NOT
+         * detected as the task output when we poll later. */
+        if (usedTabs[BRAIN_ID]) {
+          await send(usedTabs[BRAIN_ID].id, { action: 'reset' });
+        }
       } else {
         instruction = buildTaskPrompt(task, tasks, allAgentOutputs, goal);
       }
@@ -146,8 +155,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       console.log(`[Brain] ${agent.name} executing: ${task.description.slice(0, 50)}`);
       await setMultiState({ step: 'brain-executing', brainPhase: `${agent.name} executing task...`, agentOutputs: { ...agentOutputs } });
 
-      /* Activate tab right before interaction — ensures off-screen tab
-       * is in a responsive state for DOM manipulation. */
+      /* Activate tab right before interaction. */
       await pokeTab(tab.id);
       let r = await send(tab.id, { action: 'inject', text: instruction });
       if (r?.error) throw new Error(`inject: ${r.error}`);
