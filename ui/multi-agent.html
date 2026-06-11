@@ -582,6 +582,35 @@
 </head>
 <body>
 <div class="app">
+  <!-- Update overlay -->
+  <div class="settings-overlay hidden" id="update-overlay"></div>
+  <div class="settings-panel" id="update-panel" style="height:auto;top:auto;bottom:-400px;right:0;left:0;width:100%;max-width:500px;margin:0 auto;border-radius:var(--radius) var(--radius) 0 0;transition:bottom 0.35s cubic-bezier(0.16,1,0.3,1)">
+    <div class="settings-header">
+      <h2>⬇️ Update Available</h2>
+      <button class="settings-close" id="update-close">✕</button>
+    </div>
+    <div class="settings-body" style="gap:12px">
+      <p id="update-message" style="font-size:0.85rem;color:var(--text-secondary);line-height:1.5">A new version is available on GitHub.</p>
+      <div id="update-progress" style="display:none;margin:8px 0">
+        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:6px" id="update-progress-text">Downloading...</div>
+        <div style="width:100%;height:4px;background:var(--border);border-radius:4px;overflow:hidden">
+          <div id="update-progress-fill" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--info));border-radius:4px;transition:width 0.5s ease;width:0%"></div>
+        </div>
+      </div>
+      <div id="update-instructions" style="display:none;background:var(--surface-hover);padding:16px;border-radius:var(--radius-sm);font-size:0.8rem;line-height:1.6">
+        <strong style="color:var(--accent)">📦 Downloaded!</strong>
+        <ol style="margin:8px 0 0 16px;color:var(--text-secondary)">
+          <li>Go to <code style="background:var(--surface);padding:2px 8px;border-radius:4px">chrome://extensions</code></li>
+          <li>Find <strong>The Orchestrator</strong></li>
+          <li>Click the ↻ <strong>Reload</strong> icon</li>
+          <li>The extension is now up-to-date!</li>
+        </ol>
+      </div>
+      <button id="update-download-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:12px;font-weight:600;cursor:pointer;font-size:0.9rem">⬇ Download Update</button>
+      <button id="update-skip-btn" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.75rem;padding:8px">Remind later</button>
+    </div>
+  </div>
+
   <!-- Settings panel -->
   <div class="settings-overlay hidden" id="settings-overlay"></div>
   <div class="settings-panel" id="settings-panel">
@@ -632,6 +661,7 @@
       <div class="top-bar-left">
         <span class="pipeline-status-badge" id="status-badge">Pipeline ready</span>
       </div>
+      <button class="icon-btn" id="update-btn" aria-label="Update" title="Check for updates" style="display:none;border-color:var(--accent);color:var(--accent)">⬇</button>
       <button class="icon-btn" id="settings-btn" aria-label="Settings" title="Settings">⚙️</button>
       <button class="icon-btn" id="shortcuts-btn" aria-label="Shortcuts" title="Keyboard shortcuts (?)">⌨️</button>
       <button class="theme-toggle" id="theme-toggle"><span id="theme-icon">🌙</span> <span>Dark / Light</span></button>

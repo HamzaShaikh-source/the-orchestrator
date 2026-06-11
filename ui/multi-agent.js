@@ -573,6 +573,78 @@ function initSettings() {
   $('#settings-reset')?.addEventListener('click',()=>{if(!confirm('Reset settings?'))return;settings={...DEFAULT_SETTINGS};saveSettings();applySettingsUI();showToast('Reset');});
 }
 
+/* ── Auto-update ── */
+let _updateSha = '';
+let _updating = false;
+
+async function checkUpdate() {
+  try {
+    const r = await chrome.runtime.sendMessage({ action: 'checkUpdate' });
+    if (r?.available && r?.latestSha) {
+      _updateSha = r.latestSha;
+      const btn = document.getElementById('update-btn');
+      if (btn) { btn.style.display = ''; btn.title = r.message || 'Update available'; }
+    }
+  } catch {}
+}
+
+function toggleUpdatePanel(show) {
+  const panel = document.getElementById('update-panel');
+  const overlay = document.getElementById('update-overlay');
+  if (!panel || !overlay) return;
+  panel.style.bottom = show ? '0' : '-400px';
+  overlay.classList.toggle('hidden', !show);
+  if (!show) { _updating = false; }
+}
+
+async function doUpdate() {
+  if (_updating) return;
+  _updating = true;
+  const dlBtn = document.getElementById('update-download-btn');
+  const prog = document.getElementById('update-progress');
+  const progText = document.getElementById('update-progress-text');
+  const progFill = document.getElementById('update-progress-fill');
+  const instr = document.getElementById('update-instructions');
+  if (dlBtn) dlBtn.textContent = '⏳ Downloading...';
+  if (prog) prog.style.display = '';
+  if (progText) progText.textContent = 'Downloading latest version...';
+  if (progFill) progFill.style.width = '30%';
+
+  try {
+    const r = await chrome.runtime.sendMessage({ action: 'downloadUpdate' });
+    if (r?.success) {
+      if (progFill) progFill.style.width = '80%';
+      if (progText) progText.textContent = 'Download complete!';
+      if (progFill) progFill.style.width = '100%';
+      if (dlBtn) dlBtn.textContent = '✅ Downloaded';
+      if (instr) instr.style.display = '';
+      /* Acknowledge this update so badge disappears */
+      if (_updateSha) {
+        await chrome.runtime.sendMessage({ action: 'acknowledgeUpdate', sha: _updateSha });
+        const btn = document.getElementById('update-btn');
+        if (btn) btn.style.display = 'none';
+      }
+    } else {
+      throw new Error(r?.error || 'Download failed');
+    }
+  } catch (err) {
+    if (progText) progText.textContent = `Error: ${err.message}`;
+    if (dlBtn) dlBtn.textContent = '⬇ Retry Download';
+  }
+  _updating = false;
+}
+
+$('#update-btn')?.addEventListener('click', toggleUpdatePanel);
+$('#update-close')?.addEventListener('click', toggleUpdatePanel);
+$('#update-overlay')?.addEventListener('click', toggleUpdatePanel);
+$('#update-download-btn')?.addEventListener('click', doUpdate);
+$('#update-skip-btn')?.addEventListener('click', () => {
+  toggleUpdatePanel(false);
+  if (_updateSha) chrome.runtime.sendMessage({ action: 'acknowledgeUpdate', sha: _updateSha });
+  const btn = document.getElementById('update-btn');
+  if (btn) btn.style.display = 'none';
+});
+
 /* ── Utilities ── */
 function esc(s){return String(s).replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;');}
 function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');}
@@ -623,4 +695,7 @@ function highlightSyntax(code) {
   newChat();
   checkAgentHealth();
   setInterval(checkAgentHealth, 30000);
+  /* Check for updates on startup + every 6 hours */
+  checkUpdate();
+  setInterval(checkUpdate, 6 * 60 * 60 * 1000);
 })();

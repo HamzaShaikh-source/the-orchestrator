@@ -28,6 +28,54 @@ async function getConvHistory() {
   return convHistory || [];
 }
 
+/* ── Auto-update system ── */
+const GITHUB_REPO = 'HamzaShaikh-source/the-orchestrator';
+const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/commits/main`;
+const GITHUB_ZIP = `https://github.com/${GITHUB_REPO}/archive/main.zip`;
+const UPDATE_CHECK_KEY = 'lastUpdateSha';
+
+async function checkForUpdate() {
+  try {
+    const res = await fetch(GITHUB_API);
+    if (!res.ok) return { available: false, error: `GitHub API: ${res.status}` };
+    const data = await res.json();
+    const latestSha = data.sha || '';
+    if (!latestSha) return { available: false, error: 'No SHA returned' };
+    /* Get the stored SHA */
+    const { [UPDATE_CHECK_KEY]: storedSha } = await chrome.storage.local.get(UPDATE_CHECK_KEY);
+    const available = latestSha !== storedSha;
+    /* Get last commit message for display */
+    const message = data.commit?.message?.split('\n')[0] || 'New update available';
+    return { available, latestSha, message, currentVersion: chrome.runtime.getManifest().version };
+  } catch (err) {
+    return { available: false, error: err.message };
+  }
+}
+
+async function downloadLatestUpdate() {
+  try {
+    /* Download ZIP via chrome.downloads API */
+    const downloadId = await new Promise((resolve, reject) => {
+      chrome.downloads.download({
+        url: GITHUB_ZIP,
+        filename: 'the-orchestrator-update.zip',
+        saveAs: false,
+      }, (id) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(id);
+      });
+    });
+    return { success: true, downloadId, message: 'Downloading latest version...' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/* After successful check, store the SHA to suppress re-notification */
+async function acknowledgeUpdate(sha) {
+  await chrome.storage.local.set({ [UPDATE_CHECK_KEY]: sha });
+}
+
 const AGENT_DOMAINS = [
   'chat.deepseek.com', 'chatgpt.com', 'gemini.google.com',
   'www.perplexity.ai', 'huggingface.co',
@@ -221,6 +269,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     rejectTasks: () => { setMultiState({ tasksConfirmed: false }); return { ok: true }; },
     retryTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'pending'; setMultiState({ tasks: [...tasks], step: 'running' }); }}); return true; },
     skipTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'skipped'; setMultiState({ tasks: [...tasks] }); }}); return true; },
+    checkUpdate: () => { checkForUpdate().then(sendResponse); return true; },
+    downloadUpdate: () => { downloadLatestUpdate().then(sendResponse); return true; },
+    acknowledgeUpdate: () => { acknowledgeUpdate(msg.sha).then(() => sendResponse({ ok: true })); return true; },
   };
 
   const handler = handlers[msg.action];
