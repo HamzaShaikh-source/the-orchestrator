@@ -48,14 +48,17 @@ async function brainWriteTaskPrompt(task, agent, allTasks, agentOutputs, goal, u
   const strengths = agent.strengths ? Object.entries(agent.strengths).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k}=${v}`).join(', ') : '';
   const codeFormat = task.type === 'code' ? '\nWrap code in <file name="name.ext"> and </file> tags.' : '';
 
-  const prompt = `Write a task assignment for ${agent.name} (strengths: ${strengths}).
+  const prompt = `You are the lead architect. You are writing the EXACT instruction that ${agent.name} (specialist in ${strengths}) will receive.
+
+DO NOT write meta-commentary, framing, or explanations.
+DO NOT say "Your task is to..." or "Here is an assignment..."
+OUTPUT ONLY the raw instruction itself — the exact text ${agent.name} should follow.
 
 Goal: ${goal}
 Task: ${task.description}
-Other tasks: ${allTasks.filter(t => t !== task).map(t => `${t.assignedTo}: ${t.description}`).join('; ') || 'None'}
-${doneOutputs ? `\nPrevious output (build upon):\n${doneOutputs.slice(0, 2000)}` : ''}${fileSection}
+${doneOutputs ? `\nContext from completed work:\n${doneOutputs.slice(0, 2000)}` : ''}${fileSection}
 
-Output the exact instruction for ${agent.name}. Be specific.${codeFormat}`;
+Write the precise instruction for ${agent.name}. Start directly with the work to be done.${codeFormat}`;
 
   try {
     const tab = await ensureTab(brain, usedTabs, {});

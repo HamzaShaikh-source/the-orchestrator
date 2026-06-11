@@ -16,13 +16,14 @@ async function planTasks(goal, usedTabs = {}) {
 
 For each subtask:
 - "description": what to build/create (1-2 sentences with specific output)
-- "type": one of [code, creative, research, analysis, writing, technical, design]
+- "type": one of [code, creative, research, analysis, writing, design, planning, technical]
+  IMPORTANT: type MUST be one of these exact values. Use "design" for UX/visual design, NOT "ui".
 
 Rules:
 - Each subtask must produce something TANGIBLE (code, content, design spec, research findings)
 - Use DIFFERENT types across subtasks
 - Later subtasks build on earlier ones
-- Output ONLY a valid JSON array
+- Output ONLY a valid JSON array — NO markdown, NO explanation
 
 Available agents:
 ${agentList}

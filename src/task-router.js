@@ -30,10 +30,14 @@ function routeAll(tasks, allowedAgents = null) {
   const pool = allowedAgents ? allowedAgents.map(id => getAgent(id)).filter(Boolean) : allActiveAgents();
   if (!pool.length) return tasks.map(t => ({ ...t, assignedTo: 'chatgpt', status: 'pending' }));
 
+  /* Normalize unknown types: if a task type has no match, map it to closest known type */
+  const TYPE_ALIASES = { 'ui': 'design', 'ux': 'design', 'frontend': 'code', 'backend': 'code', 'testing': 'technical', 'docs': 'writing' };
+
   const assigned = tasks.map(t => {
+    const normalizedType = TYPE_ALIASES[t.type] || t.type;
     let best = null, bestScore = -1;
     for (const a of pool) {
-      const baseScore = a.strengths[t.type] || 0;
+      const baseScore = a.strengths[normalizedType] || a.strengths.code || 1;
       const adjusted = getAdjustedStrength(baseScore, a.id);
       if (adjusted > bestScore) { bestScore = adjusted; best = a.id; }
     }

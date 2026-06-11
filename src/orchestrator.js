@@ -351,28 +351,27 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     await setMultiState({ step: 'synthesis', brainPhase: 'Brain synthesizing final output...' });
 
     let finalSynthesis = '';
-    const completedOutputs = Object.entries(agentOutputs).filter(([, d]) => d.status === 'done' && d.output);
-    const parts = completedOutputs.map(([id, d]) => `=== ${getAgent(id)?.name || id} ===\n${d.output}`).join('\n\n');
+    /* Filter to only COMPLETED outputs with content */
+    const completedOutputs = Object.entries(agentOutputs).filter(([, d]) => d.status === 'done' && d.output && d.output.length > 50);
+    
+    if (completedOutputs.length > 0) {
+      /* Extract key requirements — first 200 chars of each specialist output */
+      const summaries = completedOutputs.map(([id, d]) => {
+        const name = getAgent(id)?.name || id;
+        /* Take first meaningful paragraph */
+        const lines = d.output.split('\n').filter(l => l.trim().length > 20);
+        const summary = lines.slice(0, 3).join(' ').slice(0, 400);
+        return `${name}: ${summary}`;
+      }).join('\n');
 
-    if (parts) {
-      const synthPrompt = `You are the BRAIN. Your specialists have produced specifications for a project.
+      const synthPrompt = `Build the project: ${goal}
 
-Original Goal: ${goal}
+Requirements from specialists:
+${summaries}
 
-Specialist Outputs:
-${parts}
-
-Your job: Based on ALL outputs above, generate the ACTUAL implementation files. Produce complete, working code.
-
-Wrap each file in <file name="filename.ext"> and </file> tags.
-
-Example:
-<file name="index.html">
-<!DOCTYPE html>
-<html>...</html>
-</file>
-
-Generate ALL files needed. Make them complete and production-ready.`;
+Generate ONE self-contained HTML file with embedded CSS/JS.
+Wrap the file in <file name="filename.ext"> and </file> tags.
+Make it complete, working, and production-ready.`;
 
       const synthTab = usedTabs[BRAIN_ID];
       if (synthTab && (await tabAlive(synthTab.id)) && (await waitForContentScript(synthTab.id))) {
@@ -382,12 +381,18 @@ Generate ALL files needed. Make them complete and production-ready.`;
           await sleep(1000);
           r = await send(synthTab.id, { action: 'submit' });
           if (!r?.error) {
-            const raw = await pollWithProgress(synthTab.id, synthPrompt, 90, BRAIN_ID, agentOutputs);
+            const raw = await pollWithProgress(synthTab.id, synthPrompt, 120, BRAIN_ID, agentOutputs);
             if (raw && raw !== '\u26a0\ufe0f Timeout') finalSynthesis = raw;
           }
         }
       }
-      if (!finalSynthesis) finalSynthesis = parts;
+      /* Fallback: concatenate all completed specialist outputs directly */
+      if (!finalSynthesis) {
+        finalSynthesis = completedOutputs.map(([id, d]) => d.output).join('\n\n');
+        /* Extract file tags if present */
+        const fileBlocks = finalSynthesis.match(/<file[\s\S]*?<\/file>/g);
+        if (fileBlocks) finalSynthesis = fileBlocks.join('\n');
+      }
     }
 
     await setMultiState({ synthesis: finalSynthesis, step: 'done', brainPhase: '' });
