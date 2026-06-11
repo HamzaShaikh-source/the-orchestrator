@@ -348,23 +348,16 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     const completedOutputs = Object.entries(agentOutputs).filter(([, d]) => d.status === 'done' && d.output && d.output.length > 50);
     
     if (completedOutputs.length > 0) {
-      /* Extract key requirements — first 200 chars of each specialist output */
-      const summaries = completedOutputs.map(([id, d]) => {
-        const name = getAgent(id)?.name || id;
-        /* Take first meaningful paragraph */
-        const lines = d.output.split('\n').filter(l => l.trim().length > 20);
-        const summary = lines.slice(0, 3).join(' ').slice(0, 400);
-        return `${name}: ${summary}`;
-      }).join('\n');
+      /* Clean prompt — NO specialist summaries. Feeding DeepSeek raw design specs
+       * causes corrupted CSS (duplicated rules, floating declarations). A short
+       * direct prompt produces much cleaner code. */
+      const synthPrompt = `Generate a single self-contained HTML file for: ${goal}
 
-      const synthPrompt = `Build the project: ${goal}
-
-Requirements from specialists:
-${summaries}
-
-Generate ONE self-contained HTML file with embedded CSS/JS.
-Wrap the file in <file name="filename.ext"> and </file> tags.
-Make it complete, working, and production-ready.`;
+Rules:
+- All CSS in <style>, all JS in <script>
+- Semantic HTML5, responsive
+- Wrap the file in <file name="filename.ext"> and </file> tags
+- Clean, production-ready code only`;
 
       const synthTab = usedTabs[BRAIN_ID];
       if (synthTab && (await tabAlive(synthTab.id)) && (await waitForContentScript(synthTab.id))) {
@@ -385,12 +378,14 @@ Make it complete, working, and production-ready.`;
           }
         }
       }
-      /* Fallback: concatenate all completed specialist outputs directly */
+      /* Fallback: scan ALL specialist outputs for <file> tags */
       if (!finalSynthesis) {
-        finalSynthesis = completedOutputs.map(([id, d]) => d.output).join('\n\n');
-        /* Extract file tags if present */
-        const fileBlocks = finalSynthesis.match(/<file[\s\S]*?<\/file>/g);
-        if (fileBlocks) finalSynthesis = fileBlocks.join('\n');
+        const allFileBlocks = [];
+        for (const [, d] of completedOutputs) {
+          const matches = d.output.match(/<file[\s\S]*?<\/file>/gi);
+          if (matches) allFileBlocks.push(...matches);
+        }
+        if (allFileBlocks.length > 0) finalSynthesis = allFileBlocks.join('\n');
       }
     }
 
