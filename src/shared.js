@@ -249,13 +249,13 @@ function sleep(ms) {
 
 const PLACEHOLDER_RE = /^(thinking|searching|generating|preparing|loading|analyzing|researching)/i;
 
-/* ── Smarter 1s-interval poll with adaptive stability ── */
+/* ── Smarter 1s-interval poll with adaptive stability + readDeep fallback ── */
 async function poll(tabId, prompt, maxSec = 180) {
   let last = '';
   let stable = 0;
   let maxLen = 0;
-  let lastGrowthRate = 0;
   let readFailures = 0;
+  let emptyReads = 0; /* Track consecutive empty reads for fallback */
   const isCancelled = () => cancelled || multiCancelled;
 
   for (let i = 0; i < maxSec; i++) {
@@ -265,7 +265,6 @@ async function poll(tabId, prompt, maxSec = 180) {
     if (r?.error) {
       readFailures++;
       if (readFailures >= 10) {
-        /* Try deep scan before giving up */
         const deep = await send(tabId, { action: 'readDeep' });
         if (deep?.text && deep.text.length > 50) return deep.text;
         throw new Error(r.error);
@@ -277,19 +276,30 @@ async function poll(tabId, prompt, maxSec = 180) {
     const cur = (r?.text || '').trim();
 
     if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
-      stable = 0; last = ''; await sleep(POLL_INTERVAL_MS); continue;
+      stable = 0; last = '';
+      emptyReads++;
+      /* After 30 empty reads (~30s), try readDeep as fallback */
+      if (emptyReads === 30) {
+        const deep = await send(tabId, { action: 'readDeep' });
+        if (deep?.text && deep.text.length > 50) {
+          emptyReads = 0;
+          last = deep.text; maxLen = deep.text.length;
+          await sleep(POLL_INTERVAL_MS);
+          continue;
+        }
+      }
+      await sleep(POLL_INTERVAL_MS);
+      continue;
     }
+    emptyReads = 0;
 
     if (cur.length > maxLen) {
-      /* Still growing — text is streaming */
       const growth = cur.length - maxLen;
-      lastGrowthRate = growth;
       maxLen = cur.length;
       stable = 0;
       last = cur;
     } else if (cur === last && cur.length > 10) {
       stable++;
-      /* Adaptive stability: longer texts need more confirmation */
       const required = Math.min(20, Math.max(5, Math.floor(cur.length / 200)));
       if (stable >= required) return cur;
     } else {

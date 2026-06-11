@@ -61,6 +61,12 @@
         case 'read': {
           return { text: readResponse() || '' };
         }
+        case 'readDeep': {
+          let best='', bestLen=0;
+          const all=document.body.querySelectorAll('div,p,section,article');
+          for(const el of all){if(el.offsetHeight===0)continue;if(el.closest('textarea')||el.closest('[class*="input"]'))continue;const t=(el.innerText||'').trim();if(t.length>bestLen&&t.length<50000){best=t;bestLen=t.length;}}
+          return {text: best};
+        }
         case 'checkLogin': {
           const loginKeywords = ['log in', 'sign in', 'sign up', 'register'];
           const allLinks = document.querySelectorAll('a, button, [role="button"]');

@@ -1,7 +1,8 @@
 (function() {
   'use strict';
 
-  /* Auto-healing selectors for ChatGPT */
+  /* v2.1 — ChatGPT content script with text-diff fallback */
+
   const S = {
     input: ['#prompt-textarea', 'textarea', 'div[contenteditable="true"]', '[contenteditable]'],
     submit: [
@@ -16,12 +17,21 @@
     ],
   };
 
+  const UI_PATTERNS = [
+    'log in', 'sign in', 'sign up', 'register', 'upgrade', 'subscribe',
+    'ChatGPT can make mistakes', 'content policy', 'terms of use',
+  ];
+
+  function $(sel) {
+    for (const s of sel) { const el = document.querySelector(s); if (el && el.offsetHeight > 0) return el; }
+    return null;
+  }
+
   function findInput() {
     for (const s of S.input) {
       const el = document.querySelector(s);
       if (el) return el;
     }
-    /* Auto-heal: find textarea or contenteditable anywhere */
     return document.querySelector('textarea:not([disabled])') || 
            document.querySelector('[contenteditable="true"]');
   }
@@ -31,7 +41,6 @@
       const el = document.querySelector(s);
       if (el && !el.disabled && el.offsetHeight > 0) return el;
     }
-    /* Auto-heal: find send-like button near input */
     const input = findInput();
     if (input) {
       const area = input.closest('[class*="composer"], [class*="input"], section, div') || input.parentElement;
@@ -43,7 +52,6 @@
             if (label.includes('send') || b.className.includes('submit')) return b;
           }
         }
-        /* Last button in the area */
         for (let i = btns.length - 1; i >= 0; i--) {
           if (btns[i].offsetHeight > 0) return btns[i];
         }
@@ -57,7 +65,6 @@
       const els = document.querySelectorAll(s);
       if (els.length > 0) return els;
     }
-    /* Auto-heal: find any message-like elements */
     const candidates = document.querySelectorAll('[class*="message"], [class*="conversation"], article, [data-testid*="turn"]');
     if (candidates.length > 0) return candidates;
     return null;
@@ -65,9 +72,33 @@
 
   let lastInjected = '';
   let baselineCount = 0;
+  let pageSnapshot = '';
+
+  /* Text-diff: capture all visible text for fallback detection */
+  function getPageText() {
+    const els = document.body.querySelectorAll('div, p, section, article, span, pre, code');
+    let texts = [];
+    for (const el of els) {
+      if (el.offsetHeight === 0) continue;
+      if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
+      const t = (el.innerText || '').trim();
+      if (t.length > 30) texts.push(t);
+    }
+    return [...new Set(texts)].join('\n---\n');
+  }
+
+  function getNewTextDiff() {
+    const current = getPageText();
+    if (!pageSnapshot) return '';
+    const snapParts = pageSnapshot.split('\n---\n');
+    const curParts = current.split('\n---\n');
+    const newParts = curParts.filter(p => !snapParts.includes(p) && p.length > 50);
+    const clean = newParts.filter(p => !UI_PATTERNS.some(ui => p.toLowerCase().includes(ui)));
+    return clean.join('\n\n');
+  }
 
   function dismissWelcome() {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true }));
     const main = document.querySelector('main, [class*="composer"], [class*="conversation"]');
     if (main) main.click();
@@ -84,6 +115,7 @@
           if (!el) throw new Error('ChatGPT: input not found');
           const responses = getResponses();
           baselineCount = responses ? responses.length : 0;
+          pageSnapshot = getPageText(); /* Save snapshot for text-diff */
           lastInjected = msg.text;
           el.focus();
           if (el.tagName === 'TEXTAREA') {
@@ -107,6 +139,7 @@
         }
         case 'read': {
           let text = '';
+          /* Primary: response element detection */
           const responses = getResponses();
           if (responses) {
             for (let i = responses.length - 1; i >= baselineCount; i--) {
@@ -120,14 +153,34 @@
               if (t && !t.includes(lastInjected)) { text = t; break; }
             }
           }
+          /* Fallback: text-diff if primary failed */
+          if (!text || text.length < 20) {
+            const diff = getNewTextDiff();
+            if (diff.length > 20) text = diff;
+          }
           return { text };
+        }
+        case 'readDeep': {
+          /* Deep scan: return the largest meaningful text block */
+          let best = '', bestLen = 0;
+          const allEls = document.body.querySelectorAll('div, p, section, article');
+          for (const el of allEls) {
+            if (el.offsetHeight === 0) continue;
+            if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
+            const t = (el.innerText || '').trim();
+            if (t.length > bestLen && t.length < 50000) {
+              if (UI_PATTERNS.some(ui => t.toLowerCase().includes(ui)) && t.length < 500) continue;
+              best = t; bestLen = t.length;
+            }
+          }
+          return { text: best };
         }
         case 'checkLogin': {
           const hasLogin = [...document.querySelectorAll('a, button')].some(el => /log in|sign in|sign up/i.test(el.innerText));
           return { loggedIn: !hasLogin };
         }
         default:
-          throw new Error('Unknown action: ' + msg.action);
+          throw new Error('Unknown: ' + msg.action);
       }
     })()
       .then(sendResponse)
