@@ -574,7 +574,7 @@ function initSettings() {
 }
 
 /* ── Auto-update ── */
-let _updateSha = '';
+let _updateSha = '', _updateMsg = '';
 let _updating = false;
 
 async function checkUpdate() {
@@ -582,8 +582,9 @@ async function checkUpdate() {
     const r = await chrome.runtime.sendMessage({ action: 'checkUpdate' });
     if (r?.available && r?.latestSha) {
       _updateSha = r.latestSha;
+      _updateMsg = r.message || 'Update available';
       const btn = document.getElementById('update-btn');
-      if (btn) { btn.style.display = ''; btn.title = r.message || 'Update available'; }
+      if (btn) { btn.style.display = ''; btn.title = _updateMsg; }
     }
   } catch {}
 }
@@ -592,32 +593,42 @@ function toggleUpdatePanel(show) {
   const panel = document.getElementById('update-panel');
   const overlay = document.getElementById('update-overlay');
   if (!panel || !overlay) return;
-  panel.style.bottom = show ? '0' : '-400px';
+  panel.style.bottom = show ? '0' : '-450px';
   overlay.classList.toggle('hidden', !show);
   if (!show) { _updating = false; }
+  /* Reset panel state on open */
+  if (show) {
+    document.getElementById('update-progress').style.display = 'none';
+    document.getElementById('update-instructions').style.display = 'none';
+    document.getElementById('update-reload-btn').style.display = 'none';
+    document.getElementById('update-download-btn').style.display = '';
+    document.getElementById('update-download-btn').textContent = '⬇ Download Update';
+    const msg = document.getElementById('update-message');
+    if (msg) msg.textContent = _updateMsg || 'A new version is available on GitHub.';
+  }
 }
 
 async function doUpdate() {
   if (_updating) return;
   _updating = true;
   const dlBtn = document.getElementById('update-download-btn');
+  const reloadBtn = document.getElementById('update-reload-btn');
   const prog = document.getElementById('update-progress');
   const progText = document.getElementById('update-progress-text');
   const progFill = document.getElementById('update-progress-fill');
   const instr = document.getElementById('update-instructions');
-  if (dlBtn) dlBtn.textContent = '⏳ Downloading...';
+  if (dlBtn) { dlBtn.style.display = 'none'; }
   if (prog) prog.style.display = '';
-  if (progText) progText.textContent = 'Downloading latest version...';
-  if (progFill) progFill.style.width = '30%';
+  if (progText) progText.textContent = '⬇ Downloading latest version from GitHub...';
+  if (progFill) progFill.style.width = '20%';
 
   try {
     const r = await chrome.runtime.sendMessage({ action: 'downloadUpdate' });
     if (r?.success) {
-      if (progFill) progFill.style.width = '80%';
-      if (progText) progText.textContent = 'Download complete!';
       if (progFill) progFill.style.width = '100%';
-      if (dlBtn) dlBtn.textContent = '✅ Downloaded';
+      if (progText) progText.textContent = '✅ Downloaded! Follow the steps below.';
       if (instr) instr.style.display = '';
+      if (reloadBtn) reloadBtn.style.display = '';
       /* Acknowledge this update so badge disappears */
       if (_updateSha) {
         await chrome.runtime.sendMessage({ action: 'acknowledgeUpdate', sha: _updateSha });
@@ -629,15 +640,24 @@ async function doUpdate() {
     }
   } catch (err) {
     if (progText) progText.textContent = `Error: ${err.message}`;
-    if (dlBtn) dlBtn.textContent = '⬇ Retry Download';
+    if (dlBtn) { dlBtn.style.display = ''; dlBtn.textContent = '⬇ Retry Download'; }
   }
   _updating = false;
 }
 
-$('#update-btn')?.addEventListener('click', toggleUpdatePanel);
-$('#update-close')?.addEventListener('click', toggleUpdatePanel);
-$('#update-overlay')?.addEventListener('click', toggleUpdatePanel);
+function reloadExtension() {
+  /* chrome.runtime.reload() reloads the extension from disk immediately.
+   * The user MUST have extracted the ZIP files first. */
+  if (confirm('Have you extracted the ZIP files to your extension folder?\n\nClick OK to reload the extension now.')) {
+    chrome.runtime.reload();
+  }
+}
+
+$('#update-btn')?.addEventListener('click', () => toggleUpdatePanel(true));
+$('#update-close')?.addEventListener('click', () => toggleUpdatePanel(false));
+$('#update-overlay')?.addEventListener('click', () => toggleUpdatePanel(false));
 $('#update-download-btn')?.addEventListener('click', doUpdate);
+$('#update-reload-btn')?.addEventListener('click', reloadExtension);
 $('#update-skip-btn')?.addEventListener('click', () => {
   toggleUpdatePanel(false);
   if (_updateSha) chrome.runtime.sendMessage({ action: 'acknowledgeUpdate', sha: _updateSha });
