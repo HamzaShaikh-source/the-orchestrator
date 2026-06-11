@@ -267,11 +267,34 @@ function downloadZip() {
 
 /* ── Synthesis ── */
 function renderSynthesis(text) {
-  const dt = text ? text.replace(FILE_RE,'').trim() : '';
-  $('#synth-section')?.classList.toggle('hidden', !dt);
+  if (!text) { $('#synth-section')?.classList.add('hidden'); return; }
+  /* Extract files from synthesis text first */
+  syncFilesFromSynthesis(text);
+  const fileCount = Object.keys(projectFiles).length;
+  /* Strip prompt text — keep only content after the first <file> tag if files exist,
+   * or strip lines that look like they're the prompt */
+  let display = text;
+  /* If files were extracted, show a clean summary instead of raw prompt+response */
+  if (fileCount > 0) {
+    display = `✅ Generated ${fileCount} file${fileCount > 1 ? 's' : ''} — scroll to the file panel below to preview and download.`;
+  } else {
+    /* Remove FILE_RE content and trim */
+    display = text.replace(FILE_RE, '').trim();
+    /* Also remove prompt-like leading lines (lines that start with 'Build the project' or 'Requirements from') */
+    const lines = display.split('\n').filter(l => {
+      const t = l.trim();
+      return !t.startsWith('Build the project:') && 
+             !t.startsWith('Requirements from specialists') &&
+             !t.startsWith('Generate ONE') &&
+             !t.startsWith('Wrap the file') &&
+             !t.startsWith('Make it complete') &&
+             t.length > 0;
+    });
+    display = lines.join('\n').trim();
+  }
+  $('#synth-section')?.classList.toggle('hidden', !display);
   const sb = $('#synth-body');
-  if (sb) sb.textContent = dt || '';
-  if (text && running) syncFilesFromSynthesis(text);
+  if (sb) sb.textContent = display || '';
 }
 
 /* ── Export ── */

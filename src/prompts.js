@@ -66,6 +66,12 @@ Write the precise instruction for ${agent.name}. Start directly with the work to
     await sleep(3000);
     if (!(await waitForContentScript(tab.id))) return buildTaskPrompt(task, allTasks, agentOutputs, goal);
 
+    /* Reset the brain tab before sending the write prompt.
+     * This clears any previous planner response or old brain response
+     * so getNewContent() doesn't return stale text. */
+    await send(tab.id, { action: 'reset' });
+    await sleep(300);
+
     let r = await send(tab.id, { action: 'inject', text: prompt });
     if (r?.error) return buildTaskPrompt(task, allTasks, agentOutputs, goal);
     await sleep(1000);

@@ -383,13 +383,19 @@ Make it complete, working, and production-ready.`;
 
       const synthTab = usedTabs[BRAIN_ID];
       if (synthTab && (await tabAlive(synthTab.id)) && (await waitForContentScript(synthTab.id))) {
+        /* CRITICAL: Reset the brain tab BEFORE sending the synthesis prompt.
+         * This clears any old planner/brainWrite response text from the page,
+         * so the synthesis response is detected cleanly. */
+        await send(synthTab.id, { action: 'reset' });
         await pokeTab(synthTab.id);
         let r = await send(synthTab.id, { action: 'inject', text: synthPrompt });
         if (!r?.error) {
           await sleep(1000);
           r = await send(synthTab.id, { action: 'submit' });
           if (!r?.error) {
-            const raw = await pollWithProgress(synthTab.id, synthPrompt, 120, BRAIN_ID, agentOutputs);
+            /* Use plain poll() NOT pollWithProgress() — pollWithProgress pushes
+             * to agentOutputs which makes DeepSeek appear as a "streaming" agent. */
+            const raw = await poll(synthTab.id, synthPrompt, 120);
             if (raw && raw !== '\u26a0\ufe0f Timeout') finalSynthesis = raw;
           }
         }
