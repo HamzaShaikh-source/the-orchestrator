@@ -4,93 +4,85 @@
 
 A Chrome extension that orchestrates **multiple AI agents** (DeepSeek, ChatGPT, Gemini, Perplexity, HuggingFace) to collaborate on tasks. Agents are controlled via browser automation — no API keys required.
 
-> ⚠️ **Proof of concept / developer preview.** The core pipeline works, but content scripts are fragile (they depend on DOM structure of each AI's web UI). Expect to maintain selectors.
+> ⚠️ **Proof of concept / developer preview.** The core pipeline works, but content scripts depend on each AI's web UI DOM structure. Expect to maintain selectors.
 
----
+## ✨ New in v2.1
+
+| Feature | What it does |
+|---------|-------------|
+| **Pipeline Flow Viz** | Animated flow diagram shows Brain → Execute → Review → Synthesize in real-time |
+| **Agent Health Monitor** | Live indicator on each agent chip (green/red/gray for online/offline/unknown) |
+| **Settings Panel** | ⚙️ gear icon — configure retries, poll speed, sound, notifications, animations |
+| **🎉 Confetti Celebration** | Fireworks animation when pipeline completes |
+| **⌨️ Shortcuts Modal** | Press `?` to see all keyboard shortcuts |
+| **Task Animation** | Staggered tile appearance, smoother transitions |
+| **Improved File Panel** | Grid/list toggle, one-click delete, inline edit, dedicated preview |
+| **Enhanced Export** | Synthesis section has inline MD + HTML export buttons |
+| **Better Mobile Layout** | Flow arrows rotate vertical on small screens, full-width settings |
 
 ## Quick Start
 
 1. Open Chrome → `chrome://extensions`
 2. Enable **Developer mode** → click **Load unpacked** → select the `the-orchestrator` folder
-3. Click the extension icon in the toolbar, or open the dashboard:
+3. Click the extension icon, or open:
    ```
    chrome-extension://<extension-id>/ui/multi-agent.html
    ```
-   (Find your extension ID on `chrome://extensions` under "The Orchestrator")
-4. Select which AI agents to use by clicking their icons
-5. Type a goal like *"Create a landing page with CSS animations"* → click **▶ Run Pipeline**
+4. Select AI agents by clicking their icons
+5. Type a goal → click **▶ Run Pipeline**
 
-**Required:** Free accounts for the AI services you want to use (DeepSeek, ChatGPT, etc.).
-
----
+**Required:** Free accounts for the AI services you want to use.
 
 ## How It Works
 
 ```
-User goal → AI selects best agents → Login check → Planner breaks into subtasks
-  → Router assigns tasks to agents → Each agent executed via browser tab
-  → Feedback loop cross-reviews outputs → Synthesis produces final result
+User goal → Login check → Planner breaks into subtasks
+  → Router assigns tasks → All tasks execute in PARALLEL
+  → Brain reviews → Synthesis produces final files
 ```
 
-**Key insight:** Each AI service runs in a real browser tab. Content scripts read/write the chat input/output fields automatically. No API keys, no backend.
-
----
+**Key insight:** Each AI runs in a real browser tab. Content scripts read/write chat fields automatically. No API keys, no backend.
 
 ## Features
 
-- **Multi-agent orchestration** — Select 2–4 agents. The LLM-powered selector picks the best combination for your goal.
-- **Pre-flight login check** — Before running, verifies every selected agent is logged in. Shows overlay with retry/cancel if not.
-- **Intelligent routing** — Subtasks assigned to the best-suited agent (code → DeepSeek, writing → ChatGPT, research → Perplexity, etc.).
-- **Balanced workload** — Every selected agent gets at least one task.
-- **Cross-model feedback** — Agents critique and improve each other's outputs.
-- **File-tagged output** — Code tasks produce `<file name="...">` tags. View and download as ZIP.
-- **Chat history** — All runs saved with agent selections, conversation URLs, and results. Re-run historical chats.
-- **Dark theme UI** — Built-in dashboard with progress tracking.
-
----
-
-## Full Architecture Blueprint
-
-See [`index.html`](./index.html) for the complete architectural vision, including pipeline design, agent selection strategies, fallback mechanisms, and future roadmap.
-
----
+- **Multi-agent orchestration** — Select 2–5 agents. Tasks routed by capability scores.
+- **Pre-flight login check** — Verifies every agent is logged in before starting.
+- **Parallel execution** — Every task gets its own browser tab, runs simultaneously.
+- **File-tagged output** — Code produces `<file name="...">` tags. Download as ZIP.
+- **Chat history** — All runs saved. Restore, re-run, compare.
+- **Self-healing** — Content scripts use text-diff detection, not fragile CSS selectors.
+- **Pipeline flow visualization** — Watch each stage animate in real-time.
+- **Settings panel** — Configure retries, poll speed, notifications, animations.
+- **Keyboard shortcuts** — `Ctrl+Enter` run, `Esc` stop, `?` shortcuts, `Ctrl+N` new chat.
+- **Dark / Light theme** — Persisted to localStorage.
+- **File management** — Grid/list view, copy, edit, delete, HTML preview, ZIP download.
 
 ## Project Structure
 
 ```
-├── manifest.json            # Chrome extension manifest
-├── multi-agent.html         # Redirects → ui/multi-agent.html
-├── dashboard.html           # Redirects → ui/dashboard.html
-│
-├── src/                     # Core source code
-│   ├── background.js        # Service worker — tab management, messaging
+├── manifest.json            # Chrome extension manifest (MV3)
+├── src/
+│   ├── background.js        # Service worker
 │   ├── shared.js            # Utilities, login check, tab management
 │   ├── orchestrator.js      # Brain-centered pipeline orchestration
 │   ├── agents.js            # Agent definitions, capability scores, chat history
-│   ├── task-planner.js      # LLM-powered task decomposition
-│   ├── task-router.js       # Assigns tasks to best-fit agents
-│   └── server.js            # HTTP server for zip download
-│
-├── content/                 # Content scripts (one per AI service)
+│   ├── prompts.js           # Prompt builders
+│   ├── task-planner.js      # Task decomposition
+│   └── task-router.js       # Task-to-agent routing
+├── content/                 # Content scripts (one per AI)
 │   ├── deepseek.js
 │   ├── chatgpt.js
 │   ├── gemini.js
 │   ├── perplexity.js
 │   └── huggingface.js
-│
-├── ui/                      # Frontend pages
-│   ├── multi-agent.html     # Main orchestration dashboard
-│   ├── multi-agent.js
+├── ui/
+│   ├── multi-agent.html     # Main dashboard (revamped v2.1)
+│   ├── multi-agent.js       # Dashboard logic
 │   ├── dashboard.html/js    # Alternative dashboard
-│   ├── popup.html/js        # Extension popup
-│
+│   └── popup.html/js        # Extension popup
 ├── icons/                   # Extension icons
-├── docs/                    # Architecture documentation
-├── README.md
-└── LICENSE
+└── README.md
 ```
-
----
 
 ## Supported Agents
 
@@ -98,42 +90,27 @@ See [`index.html`](./index.html) for the complete architectural vision, includin
 |-------|------|---------|--------|
 | **DeepSeek** | 🧠 | Code, reasoning, technical | ✅ Works |
 | **ChatGPT** | 💬 | Writing, instructions, UI/UX | ✅ Works |
-| **Gemini** | ✨ | Analysis, structured thinking | ⚠️ Submit button unreliable |
+| **Gemini** | ✨ | Analysis, structured thinking | ⚠️ Submit unreliable |
 | **Perplexity** | 🔍 | Web research, citations | ✅ Works |
 | **HuggingFace** | 🤗 | NLP, translation | ✅ Works |
 
----
-
 ## Known Limitations
 
-- **Content scripts break on site updates** — Selectors are tied to each AI service's current DOM. When sites update, content scripts need updating.
-- **Extension reload = refresh tabs** — Content scripts aren't re-injected on reload. Tabs opened before a reload need manual refreshing.
-- **Slow** — Full pipeline takes 2–5 minutes per run.
-- **Gemini submit is unreliable** — ChatGPT is the default selector/planner agent.
-- **One-shot only** — No iterative refinement within tasks.
+- **Content scripts break on site updates** — Selectors need maintaining
+- **Slow** — Full pipeline takes 2–5 minutes
+- **Gemini submit is unreliable** — ChatGPT is default selector
+- **One-shot only** — No iterative refinement within tasks
 
----
+## Keyboard Shortcuts
 
-## Development
-
-### Adding a new agent
-
-1. Create `content-<agent>.js` with selectors for input, submit button, and response area
-2. Add `checkLogin` action handler (see existing content scripts)
-3. Add the agent to `agents.js` with capability scores (0–9)
-4. Add `AGENT_LOGIN_URLS` entry in `shared.js`
-5. Add the agent to UI templates in `multi-agent.js`
-
-### Login check test
-
-```javascript
-// In DevTools on any agent's page:
-await chrome.runtime.sendMessage({ action: 'checkLogin' });
-// → { loggedIn: true } or { loggedIn: false }
-```
-
----
+| Key | Action |
+|-----|--------|
+| `Ctrl+Enter` | Run pipeline |
+| `Esc` | Stop pipeline |
+| `Ctrl+N` | New chat |
+| `?` | Toggle shortcuts |
+| `G` | Open settings |
 
 ## License
 
-MIT
+MIT — built by [Hamza Shaikh](https://github.com/HamzaShaikh-source)

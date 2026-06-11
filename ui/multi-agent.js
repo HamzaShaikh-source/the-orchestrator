@@ -1,727 +1,584 @@
+/* Multi-Agent UI — The Orchestrator Dashboard */
 const $ = id => document.getElementById(id.replace('#', ''));
 let pollTimer = null, running = false, currentChatId = null, selectedAgents = [];
 let projectFiles = {}, attachedFiles = [];
-let taskStartTimes = {}; /* Track when each task started for time estimation */
-let pipelineStartTime = null; /* Track overall pipeline start */
+let pipelineStartTime = null, _lastOutputs = null;
 
+/* ── Settings defaults & persistence ── */
+const SETTINGS_KEY = 'orchestratorSettings';
+const DEFAULT_SETTINGS = { retries:2, maxAgents:4, pollMs:800, sound:true, notification:true, autoscroll:true, animSpeed:100 };
+let settings = { ...DEFAULT_SETTINGS };
+
+function loadSettings() {
+  try {
+    const s = localStorage.getItem(SETTINGS_KEY);
+    if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
+  } catch {}
+}
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+}
+function applySettingsUI() {
+  const els = ['retries','max-agents','poll-ms','sound','notification','autoscroll','anim-speed'];
+  els.forEach(k => {
+    const el = document.getElementById(`setting-${k}`);
+    if (!el) return;
+    const key = k.replace('-','');
+    if (el.type === 'checkbox' || el.classList.contains('toggle-switch')) {
+      el.classList.toggle('on', !!settings[key]);
+    } else if (el.type === 'range') {
+      el.value = settings[key];
+    } else {
+      el.value = settings[key];
+    }
+  });
+}
+
+/* ── Toast ── */
 function showToast(msg, type = 'info') {
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.textContent = msg;
-  toast.style.cssText = `position:fixed; bottom:20px; right:20px; background:#1a1a24; border:1px solid ${type==='error'?'#f44250':'#10a37f'}; border-radius:8px; padding:10px 16px; z-index:9999; color:white; font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,0.4); animation:fadeOut 3s forwards;`;
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;background:#1a1a2e;border:1px solid ${type==='error'?'#ef4444':'#10a37f'};border-radius:12px;padding:12px 20px;z-index:9999;color:white;font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.5)`;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity 0.3s'; setTimeout(()=>t.remove(),300); }, 2700);
 }
 
 /* ── Agent strip ── */
 function renderAgentCards() {
   const strip = $('#agent-strip');
   if (!strip) return;
-  strip.innerHTML = allActiveAgents().map(a => `
-    <div class="agent-chip ${selectedAgents.includes(a.id) ? 'selected' : ''}" data-agent="${a.id}" draggable="true">
-      <span>${a.icon}</span> ${a.name}
-      <span class="dot" id="dot-${a.id}"></span>
-    </div>
-  `).join('');
-  strip.querySelectorAll('.agent-chip').forEach(card => {
-    card.addEventListener('click', () => {
+  const existingLabel = strip.querySelector('.agent-strip-label');
+  strip.innerHTML = '';
+  if (existingLabel) strip.appendChild(existingLabel);
+  else { const l = document.createElement('span'); l.className='agent-strip-label'; l.textContent='Agents:'; strip.appendChild(l); }
+
+  allActiveAgents().map(a => {
+    const div = document.createElement('div');
+    div.className = `agent-chip ${selectedAgents.includes(a.id) ? 'selected' : ''}`;
+    div.dataset.agent = a.id;
+    div.draggable = true;
+    div.innerHTML = `<span>${a.icon}</span> ${a.name}<span class="dot" id="dot-${a.id}"></span><span class="health-indicator unknown" id="health-${a.id}"></span>`;
+    div.addEventListener('click', () => {
       if (running) return;
-      const id = card.dataset.agent;
-      const idx = selectedAgents.indexOf(id);
+      const idx = selectedAgents.indexOf(a.id);
       if (idx >= 0) selectedAgents.splice(idx, 1);
-      else selectedAgents.push(id);
+      else selectedAgents.push(a.id);
       renderAgentCards();
     });
-    /* Drag and drop reorder */
-    card.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', card.dataset.agent); card.style.opacity = '0.4'; });
-    card.addEventListener('dragend', () => { card.style.opacity = '1'; });
-    card.addEventListener('dragover', (e) => { e.preventDefault(); });
-    card.addEventListener('drop', (e) => {
+    div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', a.id); div.style.opacity='0.4'; });
+    div.addEventListener('dragend', () => { div.style.opacity='1'; });
+    div.addEventListener('dragover', e => e.preventDefault());
+    div.addEventListener('drop', e => {
       e.preventDefault();
       const fromId = e.dataTransfer.getData('text/plain');
-      const toId = card.dataset.agent;
-      if (fromId && toId && fromId !== toId) {
-        const fromIdx = selectedAgents.indexOf(fromId);
-        const toIdx = selectedAgents.indexOf(toId);
-        if (fromIdx >= 0 && toIdx >= 0) {
-          selectedAgents.splice(fromIdx, 1);
-          selectedAgents.splice(toIdx, 0, fromId);
-          renderAgentCards();
-        }
+      if (fromId && fromId !== a.id) {
+        const fi = selectedAgents.indexOf(fromId), ti = selectedAgents.indexOf(a.id);
+        if (fi>=0 && ti>=0) { selectedAgents.splice(fi,1); selectedAgents.splice(ti,0,fromId); renderAgentCards(); }
       }
     });
+    strip.appendChild(div);
   });
 }
-
 function highlightAgents(ids) {
   document.querySelectorAll('.agent-chip').forEach(c => c.classList.remove('selected'));
   ids.forEach(id => document.querySelector(`.agent-chip[data-agent="${id}"]`)?.classList.add('selected'));
 }
-
-function setAgentStatus(id, status) {
+function setAgentStatus(id, st) {
   const dot = $(`dot-${id}`);
-  if (dot) dot.className = `dot ${status}`;
+  if (dot) dot.className = `dot ${st}`;
+}
+async function checkAgentHealth() {
+  for (const a of allActiveAgents()) {
+    const h = $(`health-${a.id}`);
+    if (!h) continue;
+    try {
+      const tabs = await chrome.tabs.query({url: a.url + '*'});
+      h.className = `health-indicator ${tabs.length > 0 ? 'online' : 'offline'}`;
+    } catch { h.className = 'health-indicator unknown'; }
+  }
 }
 
 /* ── Tasks ── */
 function renderTasks(tasks, editable) {
-  const container = $('#task-list');
-  if (!tasks?.length) { $('#tasks-section').classList.add('hidden'); return; }
-  $('#tasks-section').classList.remove('hidden');
-  container.innerHTML = tasks.map((t, i) => `
-    <div class="task-tile">
+  const c = $('#task-list');
+  if (!tasks?.length) { $('#tasks-section')?.classList.add('hidden'); return; }
+  $('#tasks-section')?.classList.remove('hidden');
+  c.innerHTML = tasks.map((t,i) => {
+    const animDelay = settings.animSpeed ? `animation-delay:${i*40}ms` : '';
+    return `<div class="task-tile" style="${animDelay}">
       <div class="tile-num">#${i+1}</div>
       <div class="tile-body">
         <div class="tile-status ${t.status}">${t.status||'pending'}</div>
-        <div class="tile-desc">${editable ? `<textarea data-index="${i}" class="tile-edit">${escapeHtml(t.description)}</textarea>` : escapeHtml(t.description)}</div>
-        <div class="tile-agent">→ ${t.assignedTo || 'unassigned'}</div>
-        ${t.status === 'error' ? `<button class="retry-task" data-index="${i}" style="margin-top:6px;background:transparent;border:1px solid var(--danger);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--danger)">⟳ Retry</button>` : ''}
-        ${t.status === 'in-progress' ? `<button class="skip-task" data-index="${i}" style="margin-top:6px;margin-left:6px;background:transparent;border:1px solid var(--warning);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--warning)">⏭ Skip</button>` : ''}
+        <div class="tile-desc">${editable ? `<textarea data-index="${i}" class="tile-edit">${esc(t.description)}</textarea>` : esc(t.description)}</div>
+        <div class="tile-agent">→ ${t.assignedTo||'unassigned'}</div>
+        ${t.status==='error'?`<button class="retry-task" data-index="${i}" style="margin-top:6px;background:transparent;border:1px solid var(--danger);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--danger)">⟳ Retry</button>`:''}
+        ${t.status==='in-progress'?`<button class="skip-task" data-index="${i}" style="margin-top:6px;margin-left:6px;background:transparent;border:1px solid var(--warning);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--warning)">⏭ Skip</button>`:''}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 /* ── Outputs ── */
-function renderOutputs(agentOutputs) {
-  const container = $('#outputs-list');
-  if (!agentOutputs || !Object.keys(agentOutputs).length) { $('#outputs-section').classList.add('hidden'); return; }
-  $('#outputs-section').classList.remove('hidden');
-  /* Show compare button if there are other chats */
-  listChats().then(chats => {
-    const hasOther = chats.some(c => c.id !== currentChatId && c.results?.agentOutputs);
-    if (hasOther) document.getElementById('compare-btn')?.style.removeProperty('display');
-  });
-  /* Collapsed by default — show only counts */
-  const total = Object.keys(agentOutputs).length;
-  const done = Object.values(agentOutputs).filter(d => d.status === 'done').length;
-  const errored = Object.values(agentOutputs).filter(d => d.status === 'error').length;
-  container.innerHTML = `
-    <div class="outputs-summary" id="outputs-summary">
-      <span>${total} agents · ${done} done · ${errored} errored</span>
+function renderOutputs(ao) {
+  _lastOutputs = ao;
+  const c = $('#outputs-list');
+  if (!ao||!Object.keys(ao).length) { $('#outputs-section')?.classList.add('hidden'); return; }
+  $('#outputs-section')?.classList.remove('hidden');
+  const total = Object.keys(ao).length, done = Object.values(ao).filter(d=>d.status==='done').length, err = Object.values(ao).filter(d=>d.status==='error').length;
+  c.innerHTML = `
+    <div class="outputs-summary">
+      <span>${total} agents · ${done} done · ${err} errored</span>
       <button id="toggle-outputs" style="background:none;border:1px solid var(--border);border-radius:40px;padding:4px 14px;font-size:0.75rem;cursor:pointer;color:var(--text-secondary)">Show details</button>
     </div>
     <div id="outputs-detail" style="display:none">
-      ${Object.entries(agentOutputs).map(([id, data]) => {
-        const agent = getAgent(id);
-        if (!agent) return '';
-        const badge = data.status === 'streaming' ? '⏳' : data.status === 'done' ? '✅' : data.status === 'error' ? '❌' : '';
-        const text = data.output || data.error || 'Waiting...';
-        return `<div class="output-card">
-          <div class="header"><span>${agent.icon}</span> ${agent.name} <span style="margin-left:auto">${badge}</span></div>
+      ${Object.entries(ao).map(([id,data])=>{
+        const a = getAgent(id); if(!a) return '';
+        const badge = data.status==='streaming'?'⏳':data.status==='done'?'✅':data.status==='error'?'❌':'';
+        const text = data.output||data.error||'Waiting...';
+        return `<div class="output-card" style="animation-delay:${Object.keys(ao).indexOf(id)*50}ms">
+          <div class="header"><span>${a.icon}</span> ${a.name} <span style="margin-left:auto">${badge}</span></div>
           <div class="body">${highlightSyntax(text)}</div>
-          <button class="copy-output" data-text="${escapeAttr(text)}" style="margin-top:8px;background:transparent;border:1px solid var(--line);border-radius:20px;padding:4px 12px;font-size:11px;cursor:pointer;color:var(--text-secondary)">📋 Copy</button>
+          <button class="copy-output" data-text="${escAttr(text)}" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;cursor:pointer;color:var(--text-secondary)">📋 Copy</button>
         </div>`;
       }).join('')}
-    </div>
-  `;
-  /* Toggle details */
-  const toggle = document.getElementById('toggle-outputs');
-  if (toggle) toggle.onclick = () => {
-    const detail = document.getElementById('outputs-detail');
-    const isHidden = detail.style.display === 'none';
-    detail.style.display = isHidden ? 'block' : 'none';
-    toggle.textContent = isHidden ? 'Hide details' : 'Show details';
+    </div>`;
+  const tg = document.getElementById('toggle-outputs');
+  if (tg) tg.onclick = () => {
+    const d = document.getElementById('outputs-detail');
+    const h = d.style.display === 'none';
+    d.style.display = h ? 'block' : 'none';
+    tg.textContent = h ? 'Hide details' : 'Show details';
   };
-  document.querySelectorAll('.copy-output').forEach(btn => {
-    btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.text).then(() => showToast('Copied!')).catch(() => {}));
-  });
+  document.querySelectorAll('.copy-output').forEach(b => b.addEventListener('click', ()=>navigator.clipboard.writeText(b.dataset.text).then(()=>showToast('Copied!')).catch(()=>{})));
 }
 
-function syncFilesFromAI(agentOutputs) {
-  if (!agentOutputs) return;
-  let changed = false;
-  const FILE_RE = /<file\s+name=["']([^"']+)["']>([\s\S]*?)<\/file>/gi;
-  for (const [, data] of Object.entries(agentOutputs)) {
-    if (!data.output) continue;
-    let match;
-    while ((match = FILE_RE.exec(data.output))) {
-      const name = match[1].trim(), content = match[2].trim();
-      if (projectFiles[name] !== content) { projectFiles[name] = content; changed = true; }
-    }
-  }
-  if (changed) renderFilePanel();
-}
-
-/* Also scan synthesis text for file tags */
-function syncFilesFromSynthesis(synthText) {
-  if (!synthText) return;
-  let changed = false;
-  const FILE_RE = /<file\s+name=["']([^"']+)["']>([\s\S]*?)<\/file>/gi;
-  let match;
-  while ((match = FILE_RE.exec(synthText))) {
-    const name = match[1].trim(), content = match[2].trim();
+/* ── File extraction ── */
+const FILE_RE = /<file\s+name=["']([^"']+)["']>([\s\S]*?)<\/file>/gi;
+function syncFilesFromText(text) {
+  if (!text) return;
+  let changed = false, m;
+  while ((m = FILE_RE.exec(text))) {
+    const name = m[1].trim(), content = m[2].trim();
     if (projectFiles[name] !== content) { projectFiles[name] = content; changed = true; }
   }
   if (changed) renderFilePanel();
 }
+function syncFilesFromAI(ao) {
+  if (!ao) return;
+  for (const [,data] of Object.entries(ao)) syncFilesFromText(data.output);
+}
+function syncFilesFromSynthesis(t) { syncFilesFromText(t); }
 
+/* ── File panel ── */
 function renderFilePanel() {
   const names = Object.keys(projectFiles);
-  if (names.length === 0) return;
-  
+  if (!names.length) return;
   const old = document.getElementById('file-panel-output');
   if (old) old.remove();
-
-  const content = document.getElementById('content');
+  const content = $('content');
   if (!content) return;
 
   const panel = document.createElement('div');
   panel.id = 'file-panel-output';
-  panel.style.cssText = 'margin-top:16px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)';
   panel.innerHTML = `
-    <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:16px">✅ Generated Files (${names.length})</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">
-    ${names.map(n => {
-      const ext = n.split('.').pop();
-      const icon = ext === 'html' ? '🌐' : ext === 'css' ? '🎨' : ext === 'js' ? '⚡' : ext === 'json' ? '📋' : ext === 'md' ? '📝' : '📄';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface-hover);border-radius:var(--radius-sm);border:1px solid var(--border);cursor:pointer" class="file-item-clickable" data-name="${escapeAttr(n)}">
-        <span style="font-size:1.2rem">${icon}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-family:monospace;font-size:0.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis">${escapeHtml(n)}</div>
-          <div style="font-size:0.65rem;color:var(--text-muted)">${(projectFiles[n].length / 1024).toFixed(1)} KB</div>
-        </div>
-        <button class="copy-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">📋</button>
-        <button class="edit-file" data-name="${escapeAttr(n)}" style="background:none;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:0.7rem;cursor:pointer;color:var(--text-secondary)">✏️</button>
-      </div>`;
-    }).join('')}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent)">✅ Generated Files (${names.length})</div>
+      <div class="file-tabs">
+        <button class="file-tab active" data-view="grid">Grid</button>
+        <button class="file-tab" data-view="list">List</button>
+      </div>
+    </div>
+    <div class="file-grid" id="file-grid">
+      ${names.map(n=>{
+        const ext = n.split('.').pop();
+        const icon = ext==='html'?'🌐':ext==='css'?'🎨':ext==='js'?'⚡':ext==='json'?'📋':ext==='md'?'📝':'📄';
+        return `<div class="file-item" data-name="${escAttr(n)}">
+          <span class="file-icon">${icon}</span>
+          <div class="file-info">
+            <div class="file-name">${esc(n)}</div>
+            <div class="file-meta">${(projectFiles[n].length/1024).toFixed(1)} KB</div>
+          </div>
+          <div class="file-actions">
+            <button class="file-action-btn" data-action="copy" data-name="${escAttr(n)}">📋</button>
+            <button class="file-action-btn" data-action="edit" data-name="${escAttr(n)}">✏️</button>
+            <button class="file-action-btn" data-action="preview" data-name="${escAttr(n)}" ${n.endsWith('.html')?'':'style="display:none"'}>👁</button>
+            <button class="file-action-btn" data-action="delete" data-name="${escAttr(n)}" style="color:var(--danger)">🗑</button>
+          </div>
+        </div>`;
+      }).join('')}
     </div>
     <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
-      <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download All (.zip)</button>
-      <button id="preview-html-btn" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:40px;padding:10px 24px;font-weight:500;cursor:pointer;font-size:0.85rem">&#x1f441; Preview HTML</button>
+      <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download (.zip)</button>
+      <button id="preview-html-btn" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:40px;padding:10px 24px;font-weight:500;cursor:pointer;font-size:0.85rem">👁 Preview HTML</button>
     </div>
-    <div id="preview-container" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:400px">
+    <div id="preview-container" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:450px">
       <iframe id="preview-iframe" style="width:100%;height:100%;border:none;background:white"></iframe>
-    </div>
-  `;
+    </div>`;
 
-  /* Append panel to content area */
   content.appendChild(panel);
 
-  /* Wire up copy buttons */
-  panel.querySelectorAll('.copy-file').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const content = projectFiles[btn.dataset.name] || '';
-      navigator.clipboard.writeText(content).then(() => showToast('Copied ' + btn.dataset.name));
+  /* Tab switching */
+  panel.querySelectorAll('.file-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      panel.querySelectorAll('.file-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('file-grid').className = tab.dataset.view === 'list' ? 'file-list' : 'file-grid';
     });
   });
 
-  /* Wire up edit buttons — open file in modal for editing */
-  panel.querySelectorAll('.edit-file').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const name = btn.dataset.name;
-      const content = projectFiles[name] || '';
-      const newContent = prompt(`Edit ${name}:`, content.substring(0, 5000));
-      if (newContent !== null) {
-        projectFiles[name] = newContent;
-        showToast(`Saved ${name}`, 'success');
-      }
-    });
-  });
-
-  /* Wire up download button */
-  const dlBtn = document.getElementById('download-zip-btn');
-  if (dlBtn) {
-    dlBtn.addEventListener('click', () => {
-      const files = Object.entries(projectFiles).map(([name, content]) => ({ name, content }));
-      if (files.length === 0) return showToast('No files to download', 'error');
-      
-      /* Build ZIP using simple concatenation */
-      /* Local file header (30 bytes) + filename + file data for each file */
-      /* Then central directory (46 bytes + filename) for each file */
-      /* Then end of central directory record (22 bytes) */
-      const enc = new TextEncoder();
-      const parts = [];
-      let offset = 0;
-      const centralParts = [];
-      
-      for (const f of files) {
-        const data = enc.encode(f.content);
-        const name = enc.encode(f.name);
-        const crc = (() => {
-          let c = 0xffffffff;
-          for (let i = 0; i < data.length; i++) { c ^= data[i]; for (let j = 0; j < 8; j++) c = (c >>> 1) ^ (c & 1 ? 0xedb88320 : 0); }
-          return (c ^ 0xffffffff) >>> 0;
-        })();
-        const sz = data.length;
-        const nl = name.length;
-        
-        /* Local file header */
-        const buf = new ArrayBuffer(30);
-        const v = new DataView(buf);
-        v.setUint32(0, 0x04034b50, true); /* local file header signature */
-        v.setUint16(4, 20, true); /* version needed */
-        v.setUint16(6, 0, true); /* general purpose bit flag */
-        v.setUint16(8, 0, true); /* compression method: stored */
-        v.setUint16(10, 0, true); /* last mod file time */
-        v.setUint16(12, 0, true); /* last mod file date */
-        v.setUint32(14, crc, true); /* crc-32 */
-        v.setUint32(18, sz, true); /* compressed size */
-        v.setUint32(22, sz, true); /* uncompressed size */
-        v.setUint16(26, nl, true); /* file name length */
-        v.setUint16(28, 0, true); /* extra field length */
-        parts.push(new Uint8Array(buf), name, data);
-        
-        /* Central directory entry */
-        const cbuf = new ArrayBuffer(46);
-        const cv = new DataView(cbuf);
-        cv.setUint32(0, 0x02014b50, true); /* central directory file header signature */
-        cv.setUint16(4, 20, true); /* version made by */
-        cv.setUint16(6, 20, true); /* version needed to extract */
-        cv.setUint16(8, 0, true); /* general purpose bit flag */
-        cv.setUint16(10, 0, true); /* compression method: stored */
-        cv.setUint16(12, 0, true); /* last mod file time */
-        cv.setUint16(14, 0, true); /* last mod file date */
-        cv.setUint32(16, crc, true); /* crc-32 */
-        cv.setUint32(20, sz, true); /* compressed size */
-        cv.setUint32(24, sz, true); /* uncompressed size */
-        cv.setUint16(28, nl, true); /* file name length */
-        cv.setUint16(30, 0, true); /* extra field length */
-        cv.setUint16(32, 0, true); /* file comment length */
-        cv.setUint16(34, 0, true); /* disk number start */
-        cv.setUint16(36, 0, true); /* internal file attributes */
-        cv.setUint32(38, 0, true); /* external file attributes */
-        cv.setUint32(42, offset, true); /* relative offset of local header */
-        centralParts.push({ header: new Uint8Array(cbuf), name });
-        offset += 30 + nl + sz;
-      }
-      
-      /* Add central directory entries */
-      let centralSize = 0;
-      for (const c of centralParts) {
-        parts.push(c.header, c.name);
-        centralSize += 46 + c.name.length;
-      }
-      
-      /* End of central directory record */
-      const eocd = new ArrayBuffer(22);
-      const ev = new DataView(eocd);
-      ev.setUint32(0, 0x06054b50, true); /* end of central dir signature */
-      ev.setUint16(4, 0, true); /* number of this disk */
-      ev.setUint16(6, 0, true); /* disk where central directory starts */
-      ev.setUint16(8, files.length, true); /* number of central directory records on this disk */
-      ev.setUint16(10, files.length, true); /* total number of central directory records */
-      ev.setUint32(12, centralSize, true); /* size of central directory */
-      ev.setUint32(16, offset, true); /* offset of start of central directory */
-      ev.setUint16(20, 0, true); /* ZIP file comment length */
-      parts.push(new Uint8Array(eocd));
-      
-      /* Calculate total length and merge */
-      const totalLen = parts.reduce((s, p) => s + p.length, 0);
-      const merged = new Uint8Array(totalLen);
-      let pos = 0;
-      for (const p of parts) { merged.set(p, pos); pos += p.length; }
-      
-      const blob = new Blob([merged], { type: 'application/zip' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const goalName = ($('#goal-input').value || 'project').substring(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      a.download = `${goalName}-files.zip`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 3000);
-      showToast(`Downloaded ${goalName}-files.zip`);
-    });
-  }
-  
-  /* Preview HTML button handler */
-  setTimeout(() => {
-    const previewBtn = document.getElementById('preview-html-btn');
-    if (previewBtn) {
-      previewBtn.onclick = () => {
-        const htmlFile = Object.entries(projectFiles).find(([name]) => name.endsWith('.html'));
-        if (!htmlFile) { showToast('No HTML file to preview', 'error'); return; }
+  /* File actions */
+  panel.querySelectorAll('.file-item').forEach(item => {
+    item.addEventListener('click', e => {
+      if (e.target.closest('.file-action-btn')) return;
+      const name = item.dataset.name;
+      const content = projectFiles[name];
+      if (!content) return;
+      if (name.endsWith('.html') && confirm(`Preview ${name}?`)) {
         const container = document.getElementById('preview-container');
         const iframe = document.getElementById('preview-iframe');
-        if (!container || !iframe) return;
-        if (container.style.display === 'block') {
-          container.style.display = 'none';
-          return;
-        }
-        const blob = new Blob([htmlFile[1]], { type: 'text/html' });
-        iframe.src = URL.createObjectURL(blob);
-        container.style.display = 'block';
-        previewBtn.textContent = '✕ Close Preview';
-        /* Reset button text when preview is closed */
-        const observer = new MutationObserver(() => {
-          if (container.style.display === 'none') previewBtn.textContent = '👁 Preview HTML';
-        });
-        observer.observe(container, { attributes: true, attributeFilter: ['style'] });
-      };
+        if (!container||!iframe) return;
+        container.style.display = container.style.display==='block'?'none':'block';
+        if (container.style.display==='block') { iframe.src = URL.createObjectURL(new Blob([content],{type:'text/html'})); }
+      } else {
+        const lines = content.split('\n').slice(0,30).join('\n');
+        const s = window.open('','_blank','width=800,height=600');
+        if (s) { s.document.write(`<pre style="font:14px monospace;padding:20px;background:#0a0c10;color:#eef1f5;white-space:pre-wrap">${esc(content)}</pre>`); s.document.close(); }
+      }
+    });
+  });
+
+  panel.querySelectorAll('[data-action="copy"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); navigator.clipboard.writeText(projectFiles[b.dataset.name]||'').then(()=>showToast('Copied!')); }));
+  panel.querySelectorAll('[data-action="edit"]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const name = b.dataset.name, content = projectFiles[name]||'';
+    const n = prompt(`Edit ${name}:`, content.substring(0,5000));
+    if (n !== null) { projectFiles[name] = n; showToast(`Saved ${name}`); renderFilePanel(); }
+  }));
+  panel.querySelectorAll('[data-action="delete"]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const name = b.dataset.name;
+    if (confirm(`Delete ${name}?`)) { delete projectFiles[name]; renderFilePanel(); showToast(`Deleted ${name}`); }
+  }));
+
+  /* Download ZIP */
+  const dlBtn = document.getElementById('download-zip-btn');
+  if (dlBtn) dlBtn.addEventListener('click', () => {
+    const files = Object.entries(projectFiles).map(([n,c])=>({name:n,content:c}));
+    if (!files.length) return showToast('No files','error');
+    const enc = new TextEncoder();
+    const parts = []; let offset = 0; const centralParts = [];
+    for (const f of files) {
+      const data = enc.encode(f.content), name = enc.encode(f.name);
+      let crc = 0xffffffff;
+      for (let i=0;i<data.length;i++){crc ^=data[i];for(let j=0;j<8;j++)crc=(crc>>>1)^(crc&1?0xedb88320:0);}
+      crc = (crc^0xffffffff)>>>0;
+      const sz=data.length, nl=name.length;
+      const buf=new ArrayBuffer(30); const v=new DataView(buf);
+      v.setUint32(0,0x04034b50,true); v.setUint16(4,20,true); v.setUint16(6,0,true);
+      v.setUint16(8,0,true); v.setUint16(10,0,true); v.setUint16(12,0,true);
+      v.setUint32(14,crc,true); v.setUint32(18,sz,true); v.setUint32(22,sz,true);
+      v.setUint16(26,nl,true); v.setUint16(28,0,true);
+      parts.push(new Uint8Array(buf),name,data);
+      const cbuf=new ArrayBuffer(46); const cv=new DataView(cbuf);
+      cv.setUint32(0,0x02014b50,true); cv.setUint16(4,20,true); cv.setUint16(6,20,true);
+      cv.setUint16(8,0,true); cv.setUint16(10,0,true); cv.setUint16(12,0,true); cv.setUint16(14,0,true);
+      cv.setUint32(16,crc,true); cv.setUint32(20,sz,true); cv.setUint32(24,sz,true);
+      cv.setUint16(28,nl,true); cv.setUint16(30,0,true); cv.setUint16(32,0,true);
+      cv.setUint16(34,0,true); cv.setUint16(36,0,true); cv.setUint32(38,0,true); cv.setUint32(42,offset,true);
+      centralParts.push({h:new Uint8Array(cbuf),name}); offset += 30+nl+sz;
     }
+    let cs=0; for(const c of centralParts){parts.push(c.h,c.name);cs+=46+c.name.length;}
+    const eocd=new ArrayBuffer(22); const ev=new DataView(eocd);
+    ev.setUint32(0,0x06054b50,true); ev.setUint16(4,0,true); ev.setUint16(6,0,true);
+    ev.setUint16(8,files.length,true); ev.setUint16(10,files.length,true);
+    ev.setUint32(12,cs,true); ev.setUint32(16,offset,true); ev.setUint16(20,0,true);
+    parts.push(new Uint8Array(eocd));
+    const total=parts.reduce((s,p)=>s+p.length,0), merged=new Uint8Array(total);
+    let pos=0; for(const p of parts){merged.set(p,pos);pos+=p.length;}
+    const blob=new Blob([merged],{type:'application/zip'}), url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url;
+    const goalName=($('#goal-input').value||'project').substring(0,30).replace(/[^a-z0-9]/gi,'_').toLowerCase();
+    a.download=`${goalName}-files.zip`; document.body.appendChild(a); a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},3000);
+    showToast(`Downloaded ${goalName}-files.zip`);
+  });
+
+  /* Preview HTML */
+  setTimeout(() => {
+    const pb = document.getElementById('preview-html-btn');
+    if (pb) pb.onclick = () => {
+      const hf = Object.entries(projectFiles).find(([n])=>n.endsWith('.html'));
+      if (!hf) { showToast('No HTML file','error'); return; }
+      const c = document.getElementById('preview-container');
+      const f = document.getElementById('preview-iframe');
+      if (!c||!f) return;
+      if (c.style.display==='block') { c.style.display='none'; pb.textContent='👁 Preview HTML'; return; }
+      f.src = URL.createObjectURL(new Blob([hf[1]],{type:'text/html'}));
+      c.style.display='block'; pb.textContent='✕ Close';
+    };
   }, 100);
 }
 
+/* ── Synthesis ── */
 function renderSynthesis(text) {
-  /* Strip <file> tags from displayed text (they're extracted to the file panel) */
-  const displayText = text ? text.replace(/<file\s+name=["'][^"']+["']>[\s\S]*?<\/file>/gi, '').trim() : '';
-  $('#synth-section').classList.toggle('hidden', !displayText);
-  $('#synth-body').textContent = displayText || '';
-  /* Also scan synthesis for file tags */
-  if (text && running) {
-    syncFilesFromSynthesis(text);
-  }
+  const dt = text ? text.replace(FILE_RE,'').trim() : '';
+  $('#synth-section')?.classList.toggle('hidden', !dt);
+  const sb = $('#synth-body');
+  if (sb) sb.textContent = dt || '';
+  if (text && running) syncFilesFromSynthesis(text);
 }
 
-/* Export */
+/* ── Export ── */
 async function exportResults() {
-  const goal = $('#goal-input').value || 'Chat';
-  const synth = $('#synth-body')?.textContent || '';
+  const goal = $('#goal-input').value||'Chat';
+  const synth = $('#synth-body')?.textContent||'';
   let md = `# ${goal}\n\n${synth}\n\n`;
-  for (const [name, content] of Object.entries(projectFiles)) {
-    md += `## ${name}\n\`\`\`\n${content}\n\`\`\`\n\n`;
-  }
-  const blob = new Blob([md], { type: 'text/markdown' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'orchestrator.md'; a.click();
-  URL.revokeObjectURL(url); showToast('Exported!');
+  for (const [n,c] of Object.entries(projectFiles)) md += `## ${n}\n\`\`\`\n${c}\n\`\`\`\n\n`;
+  const b = new Blob([md],{type:'text/markdown'}), u=URL.createObjectURL(b);
+  const a=document.createElement('a'); a.href=u; a.download='orchestrator.md'; a.click();
+  URL.revokeObjectURL(u); showToast('Exported!');
+}
+async function exportHTML() {
+  const goal = $('#goal-input').value||'Chat';
+  let h = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(goal)}</title><style>body{font-family:system-ui;max-width:800px;margin:auto;padding:20px;line-height:1.6}</style></head><body><h1>${esc(goal)}</h1><p><em>The Orchestrator</em></p><hr>`;
+  for (const [n,c] of Object.entries(projectFiles)) h += `<h2>${esc(n)}</h2><pre style="background:#f5f5f5;padding:12px;border-radius:8px;overflow:auto"><code>${esc(c)}</code></pre>`;
+  h += '</body></html>';
+  const b = new Blob([h],{type:'text/html'}), u=URL.createObjectURL(b);
+  const a=document.createElement('a'); a.href=u; a.download='orchestrator-export.html'; a.click();
+  URL.revokeObjectURL(u); showToast('Exported as HTML');
 }
 $('#export-btn')?.addEventListener('click', exportResults);
+$('#export-html-btn')?.addEventListener('click', exportHTML);
 
-/* ── Notification sound ── */
+/* ── Play beep ── */
 function playBeep() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
     osc.frequency.value = 880; gain.gain.value = 0.1;
-    osc.start(); osc.stop(ctx.currentTime + 0.15);
+    osc.start(); osc.stop(ctx.currentTime+0.15);
   } catch {}
 }
 
-/* ── HTML export ── */
-async function exportHTML() {
-  const goal = $('#goal-input').value || 'Chat';
-  const files = Object.entries(projectFiles);
-  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(goal)}</title><style>body{font-family:system-ui;max-width:800px;margin:auto;padding:20px;line-height:1.6}</style></head><body><h1>${escapeHtml(goal)}</h1>`;
-  html += `<p><em>Generated by The Orchestrator</em></p><hr>`;
-  for (const [name, content] of files) {
-    html += `<h2>${escapeHtml(name)}</h2><pre style="background:#f5f5f5;padding:12px;border-radius:8px;overflow:auto"><code>${escapeHtml(content)}</code></pre>`;
+/* ── Confetti ── */
+function fireConfetti() {
+  const container = document.createElement('div');
+  container.className = 'confetti-container';
+  const colors = ['#10a37f','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
+  for (let i=0;i<60;i++) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.cssText = `left:${Math.random()*100}%;top:-${Math.random()*20}px;background:${colors[i%colors.length]};width:${6+Math.random()*8}px;height:${6+Math.random()*8}px;animation-delay:${Math.random()*0.8}s;animation-duration:${2+Math.random()*2}s;border-radius:${Math.random()>0.5?'50%':'2px'}`;
+    container.appendChild(piece);
   }
-  html += `</body></html>`;
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'orchestrator-export.html'; a.click();
-  URL.revokeObjectURL(url); showToast('Exported as HTML');
+  document.body.appendChild(container);
+  setTimeout(()=>container.remove(), 4000);
 }
-$('#export-html-btn')?.addEventListener('click', exportHTML);
 
-/* ── Auto-save goal input ── */
-try {
-  const saved = localStorage.getItem('lastGoal');
-  if (saved && !$('#goal-input').value) $('#goal-input').value = saved;
-} catch {}
-$('#goal-input')?.addEventListener('input', () => {
-  try { localStorage.setItem('lastGoal', $('#goal-input').value); } catch {}
-});
-
-/* ── Compare outputs ── */
-async function showCompareSelector() {
-  const chats = await listChats();
-  const options = chats.filter(c => c.id !== currentChatId && c.results?.agentOutputs).map(c => 
-    `${c.id}:${(c.title || 'Chat').substring(0, 40)}`
-  );
-  if (options.length === 0) { showToast('No other chats with outputs to compare', 'error'); return; }
-  const choice = prompt('Select chat to compare:\n' + options.map((o, i) => `${i}: ${o.split(':')[1]}`).join('\n'));
-  if (choice === null) return;
-  const idx = parseInt(choice);
-  if (isNaN(idx) || idx < 0 || idx >= options.length) { showToast('Invalid selection', 'error'); return; }
-  const chatId = options[idx].split(':')[0];
-  const chat = await getChat(chatId);
-  if (!chat?.results?.agentOutputs) { showToast('No outputs to compare', 'error'); return; }
-  /* Show comparison in a modal-like overlay */
-  const current = window._lastAgentOutputs || {};
-  const other = chat.results.agentOutputs;
-  const compareHtml = Object.keys({ ...current, ...other }).map(id => {
-    const agent = getAgent(id);
-    const name = agent?.name || id;
-    const curText = (current[id]?.output || '').substring(0, 500);
-    const othText = (other[id]?.output || '').substring(0, 500);
-    const same = curText === othText;
-    return `<div style="margin-bottom:16px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm)">
-      <div style="font-weight:600;margin-bottom:8px;font-size:0.85rem">${name} ${same ? '✅ identical' : '⚠️ different'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.75rem">
-        <div><div style="color:var(--text-muted);margin-bottom:4px">Current run:</div><pre style="white-space:pre-wrap;background:var(--surface-2);padding:8px;border-radius:4px;max-height:200px;overflow-y:auto">${escapeHtml(curText)}</pre></div>
-        <div><div style="color:var(--text-muted);margin-bottom:4px">Compared chat:</div><pre style="white-space:pre-wrap;background:var(--surface-2);padding:8px;border-radius:4px;max-height:200px;overflow-y:auto">${escapeHtml(othText)}</pre></div>
-      </div>
-    </div>`;
-  }).join('');
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center';
-  overlay.innerHTML = `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:800px;width:90%;max-height:80vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;margin-bottom:16px">
-      <span style="font-weight:600;font-size:1rem">📊 Output Comparison</span>
-      <button id="close-compare" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
-    </div>
-    ${compareHtml}
-  </div>`;
-  document.body.appendChild(overlay);
-  overlay.querySelector('#close-compare').onclick = () => overlay.remove();
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+/* ── Pipeline flow visualization ── */
+function updatePipelineFlow(state) {
+  const nodes = ['flow-plan','flow-brain','flow-execute','flow-review','flow-synth'];
+  nodes.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.classList.remove('active','done'); }
+  });
+  const stepMap = {
+    'login-check':'flow-plan', 'planning':'flow-plan', 'confirm-tasks':'flow-plan',
+    'running':'flow-execute', 'brain-writing':'flow-brain', 'brain-executing':'flow-execute',
+    'brain-reviewing':'flow-review', 'synthesis':'flow-synth',
+    'done':'flow-synth', 'error':'flow-synth',
+  };
+  const active = stepMap[state.step];
+  if (active) {
+    const el = document.getElementById(active);
+    if (el) el.classList.add(state.step==='done'?'done':'active');
+    /* Highlight all earlier steps as done */
+    const idx = nodes.indexOf(active);
+    for (let i=0;i<idx;i++) {
+      const e = document.getElementById(nodes[i]);
+      if (e) e.classList.add('done');
+    }
+    /* Update brain label */
+    const bl = document.getElementById('flow-brain-label');
+    if (bl && state.brainPhase) {
+      const match = state.brainPhase.match(/(DeepSeek|ChatGPT|Gemini|Perplexity|HuggingFace)/);
+      if (match) bl.textContent = match[0];
+    }
+  }
 }
-$('#compare-btn')?.addEventListener('click', showCompareSelector);
 
 /* ── Status & render ── */
 function statusText(state) {
-  if (state.step === 'login-check') return 'Checking logins...';
-  if (state.step === 'planning') return 'Planning tasks...';
-  if (state.step === 'confirm-tasks') return 'Review tasks and confirm';
-  if (state.step === 'running') return `Executing (${state.tasks?.filter(t=>t.status==='done').length||0}/${state.tasks?.length||0})`;
-  if (state.step === 'synthesis') return 'Synthesizing final output...';
-  if (state.step === 'done') return 'Complete!';
-  if (state.step === 'error') return `Error: ${state.error}`;
-  return state.step || 'Ready';
+  const m = {
+    'login-check':'Checking logins...', 'planning':'Planning tasks...', 'confirm-tasks':'Review and confirm',
+    'running':`Executing (${state.tasks?.filter(t=>t.status==='done').length||0}/${state.tasks?.length||0})`,
+    'synthesis':'Synthesizing...', 'done':'Complete!', 'error':`Error: ${state.error||''}`,
+  };
+  return m[state.step]||state.step||'Ready';
 }
 
 function render(state) {
   const dot = $('#status-dot');
-  const active = ['login-check', 'planning', 'confirm-tasks', 'running', 'synthesis'].includes(state.step);
-  dot.className = `status-dot ${active ? 'working' : state.step==='done'?'done':state.step==='error'?'error':''}`;
+  const active = ['login-check','planning','confirm-tasks','running','synthesis'].includes(state.step);
+  dot.className = `status-dot ${active?'working':state.step==='done'?'done':state.step==='error'?'error':''}`;
   $('#status-text').textContent = statusText(state);
 
-  /* Pipeline running display */
+  /* Badge */
+  const badge = $('#status-badge');
+  if (badge) { badge.textContent = statusText(state); badge.className = `pipeline-status-badge ${active?'running':state.step==='done'?'done':state.step==='error'?'error':''}`; }
+
+  /* Pipeline display */
   const pd = $('#pipeline-display');
-  const isRunning = ['running', 'synthesis', 'brain-writing', 'brain-executing', 'brain-reviewing'].includes(state.step);
+  const isRunning = ['running','brain-writing','brain-executing','brain-reviewing','synthesis'].includes(state.step);
   if (isRunning) {
     pd.classList.add('active');
-    /* Update agent icon and action */
-    const brainPhase = state.brainPhase || '';
-    let icon = '🧠', name = 'Brain', action = 'Working';
-    if (brainPhase.includes('DeepSeek')) { icon = '🧠'; name = 'DeepSeek'; }
-    else if (brainPhase.includes('ChatGPT')) { icon = '💬'; name = 'ChatGPT'; }
-    else if (brainPhase.includes('Gemini')) { icon = '✨'; name = 'Gemini'; }
-    else if (brainPhase.includes('Perplexity')) { icon = '🔍'; name = 'Perplexity'; }
-    else if (brainPhase.includes('Hugging')) { icon = '🤗'; name = 'HuggingFace'; }
-
-    const phase = state.step === 'brain-writing' ? 'Brain is writing task assignment' :
-                  state.step === 'brain-executing' ? 'Executing task' :
-                  state.step === 'brain-reviewing' ? 'Brain is reviewing output' :
-                  state.step === 'synthesis' ? 'Brain is synthesizing results' :
-                  brainPhase || 'Working';
-    action = phase;
-
-    $('#pd-agent-icon').textContent = icon;
-    $('#pd-agent-name').textContent = name;
-    $('#pd-action-text').textContent = action;
-    const total = state.tasks?.length || 0;
-    const done = state.tasks?.filter(t => t.status === 'done' || t.status === 'error').length || 0;
+    updatePipelineFlow(state);
+    const total = state.tasks?.length||0, done = state.tasks?.filter(t=>t.status==='done'||t.status==='error').length||0;
     $('#pd-progress-text').textContent = `Task ${done} of ${total}`;
-    $('#pd-progress-fill').style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
-    /* Time estimation */
-    if (pipelineStartTime && done > 0) {
-      const elapsed = (Date.now() - pipelineStartTime) / 1000;
-      const avgPerTask = elapsed / done;
-      const remaining = Math.round(avgPerTask * (total - done));
-      const elapsedStr = elapsed > 60 ? `${Math.round(elapsed / 60)}m` : `${Math.round(elapsed)}s`;
-      const remainStr = remaining > 60 ? `${Math.round(remaining / 60)}m` : `${Math.round(remaining)}s`;
-      const timeEl = document.getElementById('pd-time');
-      if (timeEl) timeEl.textContent = `${elapsedStr} elapsed · ~${remainStr} remaining`;
-    }
-
-    /* Generate background floating dots */
-    if (!pd._dots) {
-      pd._dots = true;
-      const bg = document.getElementById('pd-bg-dots');
-      if (bg) {
-        for (let i = 0; i < 12; i++) {
-          const dot = document.createElement('div');
-          dot.className = 'pd-bg-dot';
-          dot.style.left = `${Math.random() * 100}%`;
-          dot.style.animationDelay = `${Math.random() * 8}s`;
-          dot.style.animationDuration = `${6 + Math.random() * 6}s`;
-          dot.style.width = dot.style.height = `${4 + Math.random() * 8}px`;
-          bg.appendChild(dot);
-        }
-      }
+    $('#pd-progress-fill').style.width = total>0?`${(done/total)*100}%`:'0%';
+    if (pipelineStartTime && done>0) {
+      const e = (Date.now()-pipelineStartTime)/1000, avg = e/done, r = Math.round(avg*(total-done));
+      $('#pd-time').textContent = `${e>60?Math.round(e/60)+'m':Math.round(e)+'s'} · ~${r>60?Math.round(r/60)+'m':Math.round(r)+'s'} remaining`;
     }
   } else {
     pd.classList.remove('active');
-    pd._dots = false;
-    const bg = document.getElementById('pd-bg-dots');
-    if (bg) bg.innerHTML = '';
   }
 
-  renderTasks(state.tasks, state.step === 'confirm-tasks');
-  /* Only sync files during active pipeline runs, not when viewing history */
-  if (['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis', 'done'].includes(state.step)) {
-    syncFilesFromAI(state.agentOutputs);
-  }
+  renderTasks(state.tasks, state.step==='confirm-tasks');
+  if (['running','brain-writing','brain-executing','brain-reviewing','synthesis','done'].includes(state.step)) syncFilesFromAI(state.agentOutputs);
   renderOutputs(state.agentOutputs);
   renderSynthesis(state.synthesis);
-  /* Always render file panel if files exist */
-  if (Object.keys(projectFiles).length > 0) renderFilePanel();
-  $('#confirm-bar').style.display = state.step === 'confirm-tasks' ? 'flex' : 'none';
+  if (Object.keys(projectFiles).length>0) renderFilePanel();
+
+  $('#confirm-bar').style.display = state.step==='confirm-tasks'?'flex':'none';
   if (state.selectedAgents) highlightAgents(state.selectedAgents);
-  /* Show elapsed time during pipeline */
-  const elapsedEl = $('#status-elapsed');
-  if (pipelineStartTime && ['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(state.step)) {
-    const secs = Math.round((Date.now() - pipelineStartTime) / 1000);
-    elapsedEl.textContent = secs > 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
-  } else {
-    elapsedEl.textContent = '';
-  }
-  if (['done', 'error', 'cancelled'].includes(state.step)) {
-    running = false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
+
+  const ee = $('#status-elapsed');
+  if (pipelineStartTime && isRunning) {
+    const s = Math.round((Date.now()-pipelineStartTime)/1000);
+    ee.textContent = s>60?`${Math.floor(s/60)}m ${s%60}s`:`${s}s`;
+  } else { ee.textContent = ''; }
+
+  if (['done','error','cancelled'].includes(state.step)) {
+    running = false;
+    $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
     stopPoll();
-    /* Ensure file panel renders on completion */
-    if (Object.keys(projectFiles).length > 0) {
+    if (Object.keys(projectFiles).length>0) {
       renderFilePanel();
-      /* Auto-scroll to show files */
-      setTimeout(() => {
-        const fp = document.getElementById('file-panel-output');
-        if (fp) fp.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
+      if (settings.autoscroll) setTimeout(()=>{const fp=document.getElementById('file-panel-output');if(fp)fp.scrollIntoView({behavior:'smooth',block:'center'});},300);
     }
-    /* Save project files to chat record */
-    if (currentChatId && Object.keys(projectFiles).length > 0) {
-      getChat(currentChatId).then(chat => {
-        if (chat) { chat.projectFiles = { ...projectFiles }; saveChat(chat); }
-      });
+    if (currentChatId && Object.keys(projectFiles).length>0) {
+      getChat(currentChatId).then(chat => { if(chat){chat.projectFiles={...projectFiles};saveChat(chat);} });
     }
-    if (state.step === 'done') {
+    if (state.step==='done') {
       showToast('✅ Pipeline complete!');
-      playBeep();
-      /* Browser notification */
-      if (Notification.permission === 'granted') {
-        new Notification('The Orchestrator', { body: '✅ Pipeline completed!', icon: '../icons/icon128.png' });
-      } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission();
+      fireConfetti();
+      if (settings.sound) playBeep();
+      if (settings.notification) {
+        if (Notification.permission==='granted') new Notification('The Orchestrator',{body:'✅ Pipeline completed!',icon:'../icons/icon128.png'});
+        else if (Notification.permission!=='denied') Notification.requestPermission();
       }
-    }
-    else if (state.step === 'error') showToast('❌ Pipeline failed: ' + (state.error || ''), 'error');
+    } else if (state.step==='error') showToast('❌ '+ (state.error||'Pipeline failed'), 'error');
   }
 }
 
 /* ── Polling ── */
 async function fetchState() {
-  try { 
-    const s = await chrome.runtime.sendMessage({ action: 'multiStatus' }); 
+  try {
+    const s = await chrome.runtime.sendMessage({action:'multiStatus'});
     if (s) {
       render(s);
-      /* Save state for recovery on page refresh */
-      if (['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(s.step)) {
-        sessionStorage.setItem('pipelineState', JSON.stringify({ step: s.step, projectFiles }));
-      }
+      if (['running','brain-writing','brain-executing','brain-reviewing','synthesis'].includes(s.step))
+        sessionStorage.setItem('pipelineState',JSON.stringify({step:s.step,projectFiles}));
     }
   } catch {}
 }
-function startPoll() { stopPoll(); pollTimer = setInterval(fetchState, 800); }
-function stopPoll() { if (pollTimer) clearInterval(pollTimer); }
+function startPoll() { stopPoll(); pollTimer=setInterval(fetchState, settings.pollMs||800); }
+function stopPoll() { if(pollTimer) clearInterval(pollTimer); }
 
-/* ── Goal templates ── */
-$('#template-select')?.addEventListener('change', (e) => {
-  if (e.target.value) {
-    $('#goal-input').value = e.target.value;
-    e.target.value = '';
-  }
-});
+/* ── Templates ── */
+$('#template-select')?.addEventListener('change', e => { if(e.target.value){$('#goal-input').value=e.target.value;e.target.value='';} });
 
-/* ── Drag-and-drop file upload ── */
+/* ── Drag-and-drop & file upload ── */
 const dropArea = document.getElementById('goal-input')?.parentElement;
 if (dropArea) {
-  dropArea.addEventListener('dragover', (e) => { e.preventDefault(); dropArea.style.opacity = '0.7'; });
-  dropArea.addEventListener('dragleave', () => { dropArea.style.opacity = '1'; });
-  dropArea.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    dropArea.style.opacity = '1';
-    const files = Array.from(e.dataTransfer.files);
-    for (const f of files) {
-      let content = '';
-      if (f.type.startsWith('text/') || /\.(js|html|css|json|md|txt)$/i.test(f.name)) {
-        content = await f.text();
-      } else content = `[Binary file: ${f.name} - ${f.size} bytes]`;
+  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.style.opacity='0.7'; });
+  dropArea.addEventListener('dragleave', () => { dropArea.style.opacity='1'; });
+  dropArea.addEventListener('drop', async e => {
+    e.preventDefault(); dropArea.style.opacity='1';
+    for (const f of Array.from(e.dataTransfer.files)) {
+      const content = f.type.startsWith('text/')||/\.(js|html|css|json|md|txt)$/i.test(f.name) ? await f.text() : `[Binary: ${f.name} - ${f.size} bytes]`;
       attachedFiles.push({ name: f.name, content });
     }
     $('#file-count').textContent = `${attachedFiles.length} file(s)`;
-    const goal = $('#goal-input');
-    if (attachedFiles.length && !goal.value.includes('Attached files:')) {
-      goal.value += `\n\nAttached files:\n${attachedFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 1500)}`).join('\n')}`;
-    }
+    const g = $('#goal-input');
+    if (attachedFiles.length && !g.value.includes('Attached files:'))
+      g.value += `\n\nAttached files:\n${attachedFiles.map(f=>`--- ${f.name} ---\n${f.content.slice(0,1500)}`).join('\n')}`;
   });
 }
-
-/* ── File upload ── */
 $('#file-upload')?.addEventListener('change', async e => {
-  const files = Array.from(e.target.files);
-  for (const f of files) {
-    let content = '';
-    if (f.type.startsWith('text/') || f.name.endsWith('.js') || f.name.endsWith('.html') || f.name.endsWith('.css') || f.name.endsWith('.json') || f.name.endsWith('.md')) {
-      content = await f.text();
-    } else content = `[Binary file: ${f.name} - ${f.size} bytes]`;
-    attachedFiles.push({ name: f.name, content });
+  for (const f of Array.from(e.target.files)) {
+    const content = f.type.startsWith('text/')||f.name.endsWith('.js')||f.name.endsWith('.html')||f.name.endsWith('.css')||f.name.endsWith('.json')||f.name.endsWith('.md')?await f.text():`[Binary: ${f.name} - ${f.size} bytes]`;
+    attachedFiles.push({name:f.name,content});
   }
   $('#file-count').textContent = `${attachedFiles.length} file(s)`;
-  const goal = $('#goal-input');
-  if (attachedFiles.length && !goal.value.includes('Attached files:')) {
-    goal.value += `\n\nAttached files:\n${attachedFiles.map(f => `--- ${f.name} ---\n${f.content.slice(0, 1500)}`).join('\n')}`;
-  }
-  e.target.value = '';
+  const g=$('#goal-input');
+  if(attachedFiles.length&&!g.value.includes('Attached files:'))
+    g.value+=`\n\nAttached files:\n${attachedFiles.map(f=>`--- ${f.name} ---\n${f.content.slice(0,1500)}`).join('\n')}`;
+  e.target.value='';
 });
 
 /* ── Chat history ── */
 async function renderChatList(filter) {
   const chats = await listChats();
-  const list = $('#chat-list');
-  if (!list) return;
-  const searchInput = list.querySelector('#chat-search');
-  list.innerHTML = '';
-  if (searchInput) list.appendChild(searchInput);
-  const filtered = filter ? chats.filter(c => (c.title || '').toLowerCase().includes(filter.toLowerCase())) : chats;
-  filtered.forEach(c => {
-    const div = document.createElement('div');
-    div.className = `chat-item ${c.id===currentChatId?'active':''}`;
-    div.dataset.id = c.id;
-    div.innerHTML = `<div class="chat-title">${escapeHtml(c.title)}</div><div class="chat-meta"><span>${new Date(c.timestamp).toLocaleDateString()}</span><button class="del-chat" data-id="${c.id}" style="background:none;border:none;color:red;cursor:pointer;font-size:14px">×</button></div>`;
-    list.appendChild(div);
+  const list = $('#chat-list'); if(!list) return;
+  const si = list.querySelector('#chat-search'); list.innerHTML='';
+  if (si) list.appendChild(si);
+  (filter?chats.filter(c=>(c.title||'').toLowerCase().includes(filter.toLowerCase())):chats).forEach(c=>{
+    const d=document.createElement('div');
+    d.className=`chat-item ${c.id===currentChatId?'active':''}`; d.dataset.id=c.id;
+    d.innerHTML=`<div class="chat-title">${esc(c.title)}</div><div class="chat-meta"><span>${new Date(c.timestamp).toLocaleDateString()}</span><button class="del-chat" data-id="${c.id}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;opacity:0.6">×</button></div>`;
+    list.appendChild(d);
   });
   list.querySelectorAll('.chat-item').forEach(el => {
-    el.addEventListener('click', (e) => { if (!e.target.classList.contains('del-chat')) selectChat(el.dataset.id); });
-    el.querySelector('.del-chat')?.addEventListener('click', async (e) => {
+    el.addEventListener('click', e => { if(!e.target.classList.contains('del-chat')) selectChat(el.dataset.id); });
+    el.querySelector('.del-chat')?.addEventListener('click', async e => {
       e.stopPropagation();
+      if (e.detail > 1) return; // only single click
       if (!confirm('Delete this chat?')) return;
       await deleteChat(el.dataset.id);
-      if (currentChatId === el.dataset.id) newChat();
+      if (currentChatId===el.dataset.id) newChat();
       renderChatList(document.getElementById('chat-search')?.value);
     });
   });
-  if (searchInput) {
-    searchInput.oninput = () => renderChatList(searchInput.value);
-  }
+  if (si) si.oninput = () => renderChatList(si.value);
 }
 
 async function selectChat(id) {
   const chat = await getChat(id);
   if (!chat) return;
   currentChatId = id;
-  $('#goal-input').value = chat.prompt || '';
+  $('#goal-input').value = chat.prompt||'';
   if (chat.results) {
     renderTasks(chat.results.tasks);
     renderOutputs(chat.results.agentOutputs);
     renderSynthesis(chat.results.synthesis);
-    /* Restore this chat's files — don't let sync add more */
-    if (chat.projectFiles) {
-      projectFiles = { ...chat.projectFiles };
-      renderFilePanel();
-    }
+    if (chat.projectFiles) { projectFiles = {...chat.projectFiles}; renderFilePanel(); }
   }
   if (chat.selectedAgents) highlightAgents(chat.selectedAgents);
   renderChatList();
 }
-
 function newChat() {
-  currentChatId = null; selectedAgents = []; projectFiles = {};
-  $('#goal-input').value = '';
-  $('#status-text').textContent = 'Ready';
-  $('#status-dot').className = 'status-dot';
-  ['tasks-section', 'outputs-section', 'synth-section'].forEach(s => $(s)?.classList.add('hidden'));
-  /* Remove file panel from DOM */
+  currentChatId=null; selectedAgents=[]; projectFiles={};
+  $('#goal-input').value=''; $('#status-text').textContent='Ready'; $('#status-dot').className='status-dot';
+  ['tasks-section','outputs-section','synth-section'].forEach(s=>$(s)?.classList.add('hidden'));
   const fp = document.getElementById('file-panel-output');
   if (fp) fp.remove();
-  renderAgentCards();
-  renderChatList();
+  renderAgentCards(); renderChatList();
+  const badge = $('#status-badge');
+  if (badge) { badge.textContent='Pipeline ready'; badge.className='pipeline-status-badge'; }
 }
 $('#new-chat-btn')?.addEventListener('click', newChat);
 
@@ -729,132 +586,163 @@ $('#new-chat-btn')?.addEventListener('click', newChat);
 $('#run-btn').addEventListener('click', async () => {
   if (running) return;
   const goal = $('#goal-input').value.trim();
-  if (!goal) { showToast('Enter a goal first', 'error'); return; }
-  running = true;
-  pipelineStartTime = Date.now();
-  taskStartTimes = {};
+  if (!goal) { showToast('Enter a goal first','error'); return; }
+  running = true; pipelineStartTime = Date.now();
   projectFiles = {};
-  const oldFp = document.getElementById('file-panel-output');
-  if (oldFp) oldFp.remove();
+  const oldFp = document.getElementById('file-panel-output'); if (oldFp) oldFp.remove();
   attachedFiles = [];
-  /* Save goal to localStorage */
-  try { localStorage.setItem('lastGoal', goal); } catch {};
-  $('#run-btn').classList.add('hidden');
-  $('#stop-btn').classList.remove('hidden');
-  $('#status-dot').className = 'status-dot working';
-  $('#status-text').textContent = 'Starting...';
+  try { localStorage.setItem('lastGoal', goal); } catch {}
+  $('#run-btn').classList.add('hidden'); $('#stop-btn').classList.remove('hidden');
+  $('#status-dot').className = 'status-dot working'; $('#status-text').textContent = 'Starting...';
   startPoll();
 
   if (!currentChatId) {
     const chat = await createChat(goal);
-    currentChatId = chat.id;
-    await saveChat(chat);
+    currentChatId = chat.id; await saveChat(chat);
   }
   await renderChatList();
-  allActiveAgents().forEach(a => setAgentStatus(a.id, 'idle'));
+  allActiveAgents().forEach(a => setAgentStatus(a.id,'idle'));
 
   chrome.runtime.sendMessage({
-    action: 'runMulti',
-    goal,
+    action:'runMulti', goal,
     selectedAgents: selectedAgents.length ? selectedAgents : null,
-    chatId: currentChatId,
-    projectFiles,
+    chatId: currentChatId, projectFiles,
   });
 });
-
 $('#stop-btn').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'stopMulti' });
-  running = false;
-  $('#run-btn').classList.remove('hidden');
-  $('#stop-btn').classList.add('hidden');
-  stopPoll();
-  $('#status-text').textContent = 'Cancelled';
-  $('#status-dot').className = 'status-dot error';
-  showToast('Cancelled', 'error');
+  chrome.runtime.sendMessage({action:'stopMulti'});
+  running=false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
+  stopPoll(); $('#status-text').textContent='Cancelled'; $('#status-dot').className='status-dot error';
+  showToast('Cancelled','error');
 });
+$('#confirm-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({action:'confirmTasks'}));
+$('#cancel-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({action:'rejectTasks'}));
 
-$('#confirm-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({ action: 'confirmTasks' }));
-$('#cancel-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({ action: 'rejectTasks' }));
-
-/* ── Retry & Skip single task ── */
-document.addEventListener('click', (e) => {
-  const retryBtn = e.target.closest('.retry-task');
-  const skipBtn = e.target.closest('.skip-task');
-  if (retryBtn) {
-    const idx = parseInt(retryBtn.dataset.index);
-    showToast('Retrying task...', 'info');
-    chrome.runtime.sendMessage({ action: 'retryTask', taskIndex: idx });
-  }
-  if (skipBtn) {
-    const idx = parseInt(skipBtn.dataset.index);
-    showToast('Skipping task...', 'info');
-    chrome.runtime.sendMessage({ action: 'skipTask', taskIndex: idx });
-  }
+/* ── Retry & Skip ── */
+document.addEventListener('click', e => {
+  const r = e.target.closest('.retry-task'), s = e.target.closest('.skip-task');
+  if (r) { chrome.runtime.sendMessage({action:'retryTask',taskIndex:parseInt(r.dataset.index)}); showToast('Retrying...'); }
+  if (s) { chrome.runtime.sendMessage({action:'skipTask',taskIndex:parseInt(s.dataset.index)}); showToast('Skipping...'); }
 });
 
 /* ── Keyboard shortcuts ── */
-document.addEventListener('keydown', (e) => {
-  /* Ctrl+Enter to run */
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    if (!running) $('#run-btn')?.click();
-  }
-  /* Escape to stop */
-  if (e.key === 'Escape' && running) {
-    $('#stop-btn')?.click();
-  }
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!running) $('#run-btn')?.click();
+  if (e.key==='Escape'&&running) $('#stop-btn')?.click();
+  if (e.key==='?'&&!e.ctrlKey&&!e.metaKey) { e.preventDefault(); toggleShortcuts(); }
+  if (e.key==='n'&&(e.ctrlKey||e.metaKey)) { e.preventDefault(); newChat(); }
 });
 
-function escapeHtml(str) { return String(str).replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;'); }
-function escapeAttr(str) { return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+/* ── Shortcuts modal ── */
+let shortcutsOpen = false;
+function toggleShortcuts() {
+  shortcutsOpen = !shortcutsOpen;
+  const existing = document.querySelector('.shortcuts-modal');
+  if (existing) { existing.remove(); shortcutsOpen=false; return; }
+  if (!shortcutsOpen) return;
+  const m = document.createElement('div');
+  m.className = 'shortcuts-modal';
+  m.innerHTML = `<div class="shortcuts-content">
+    <h2>⌨️ Keyboard Shortcuts <button id="close-shortcuts" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text-secondary)">✕</button></h2>
+    ${[['Ctrl+Enter','Run pipeline'],['Esc','Stop pipeline'],['Ctrl+N','New chat'],['?','Toggle shortcuts'],['G','Open settings']].map(([k,d])=>`<div class="shortcut-row"><span class="shortcut-key">${k}</span><span class="shortcut-desc">${d}</span></div>`).join('')}
+  </div>`;
+  document.body.appendChild(m);
+  m.querySelector('#close-shortcuts')?.addEventListener('click', ()=>{m.remove(); shortcutsOpen=false;});
+  m.addEventListener('click', e => { if(e.target===m){m.remove(); shortcutsOpen=false;} });
+}
+$('#shortcuts-btn')?.addEventListener('click', toggleShortcuts);
+
+/* ── Settings ── */
+let settingsOpen = false;
+function toggleSettings() {
+  settingsOpen = !settingsOpen;
+  const panel = document.getElementById('settings-panel');
+  const overlay = document.getElementById('settings-overlay');
+  if (!panel || !overlay) return;
+  panel.classList.toggle('open', settingsOpen);
+  overlay.classList.toggle('hidden', !settingsOpen);
+}
+$('#settings-btn')?.addEventListener('click', toggleSettings);
+$('#settings-close')?.addEventListener('click', toggleSettings);
+$('#settings-overlay')?.addEventListener('click', toggleSettings);
+
+function initSettings() {
+  loadSettings(); applySettingsUI();
+  /* Wire up setting controls */
+  const bindToggle = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', () => { settings[key] = !settings[key]; el.classList.toggle('on'); saveSettings(); });
+  };
+  bindToggle('setting-sound', 'sound');
+  bindToggle('setting-notification', 'notification');
+  bindToggle('setting-autoscroll', 'autoscroll');
+  ['retries','max-agents','poll-ms','anim-speed'].forEach(k => {
+    const el = document.getElementById(`setting-${k}`);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      const key = k.replace('-','');
+      settings[key] = el.type==='checkbox'?el.checked:parseInt(el.value);
+      saveSettings();
+    });
+  });
+  $('#settings-reset')?.addEventListener('click', () => {
+    if (!confirm('Reset settings to defaults?')) return;
+    settings = {...DEFAULT_SETTINGS}; saveSettings(); applySettingsUI();
+    showToast('Settings reset');
+  });
+}
+
+/* ── Utilities ── */
+function esc(s) { return String(s).replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
 function highlightSyntax(code) {
-  /* Simple syntax highlighting for HTML/CSS/JS */
-  let h = escapeHtml(code);
-  h = h.replace(/(&lt;\/?[a-zA-Z][^&]*&gt;)/g, '<span style="color:#e879f9">$1</span>'); /* HTML tags */
-  h = h.replace(/(\/\*[\s\S]*?\*\/|--[\s\S]*?$)/gm, '<span style="color:#6b7280">$1</span>'); /* Comments */
-  h = h.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span style="color:#f59e0b">$1</span>'); /* Strings */
-  h = h.replace(/\b(function|const|let|var|if|else|return|class|import|export|default|async|await|for|while|do|switch|case|break|continue|new|this|typeof|instanceof)\b/g, '<span style="color:#3b82f6">$1</span>'); /* Keywords */
-  h = h.replace(/\b(\d+\.?\d*)(px|rem|em|vh|vw|%|s|ms)?\b/g, '<span style="color:#22c55e">$1$2</span>'); /* Numbers + units */
+  let h = esc(code);
+  h = h.replace(/(&lt;\/?[a-zA-Z][^&]*&gt;)/g,'<span style="color:#e879f9">$1</span>');
+  h = h.replace(/(\/\*[\s\S]*?\*\/|--[\s\S]*?$)/gm,'<span style="color:#6b7280">$1</span>');
+  h = h.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span style="color:#f59e0b">$1</span>');
+  h = h.replace(/\b(function|const|let|var|if|else|return|class|import|export|default|async|await|for|while|do|switch|case|break|continue|new|this|typeof|instanceof)\b/g,'<span style="color:#3b82f6">$1</span>');
+  h = h.replace(/\b(\d+\.?\d*)(px|rem|em|vh|vw|%|s|ms)?\b/g,'<span style="color:#22c55e">$1$2</span>');
   return h;
 }
 
 /* ── Init ── */
 (async () => {
-  /* Theme toggle */
-  const isDark = localStorage.getItem('theme') === 'dark';
+  const isDark = localStorage.getItem('theme')==='dark';
   if (isDark) document.body.classList.add('dark');
-  window.updateThemeIcon = () => {
-    const icon = document.getElementById('theme-icon');
-    if (icon) icon.textContent = document.body.classList.contains('dark') ? '☀️' : '🌙';
-  };
+  window.updateThemeIcon = () => { const i=document.getElementById('theme-icon'); if(i)i.textContent=document.body.classList.contains('dark')?'☀️':'🌙'; };
   updateThemeIcon();
-  const themeBtn = document.getElementById('theme-toggle');
-  if (themeBtn) {
-    themeBtn.addEventListener('click', () => {
-      document.body.classList.toggle('dark');
-      localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
-      updateThemeIcon();
-    });
-  }
+  $('#theme-toggle')?.addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+    localStorage.setItem('theme', document.body.classList.contains('dark')?'dark':'light');
+    updateThemeIcon();
+  });
 
-  /* Recover pipeline state if page was refreshed mid-run */
-  const savedState = sessionStorage.getItem('pipelineState');
-  if (savedState) {
+  /* Recover pipeline state */
+  const saved = sessionStorage.getItem('pipelineState');
+  if (saved) {
     try {
-      const parsed = JSON.parse(savedState);
-      if (parsed.projectFiles) projectFiles = parsed.projectFiles;
-      if (parsed.step && ['running', 'brain-writing', 'brain-executing', 'brain-reviewing', 'synthesis'].includes(parsed.step)) {
-        showToast('🔄 Pipeline was running — reconnecting...', 'info');
-        startPoll();
+      const p = JSON.parse(saved);
+      if (p.projectFiles) projectFiles = p.projectFiles;
+      if (p.step&&['running','brain-writing','brain-executing','brain-reviewing','synthesis'].includes(p.step)) {
+        showToast('🔄 Reconnecting...'); startPoll();
       }
       sessionStorage.removeItem('pipelineState');
     } catch {}
   }
 
-  /* Loading state: show a brief transition */
-  document.body.style.opacity = '0';
-  requestAnimationFrame(() => { document.body.style.transition = 'opacity 0.3s'; document.body.style.opacity = '1'; });
+  /* Auto-save goal */
+  try { const g = localStorage.getItem('lastGoal'); if (g&&!$('#goal-input').value) $('#goal-input').value=g; } catch {}
+  $('#goal-input')?.addEventListener('input', () => { try { localStorage.setItem('lastGoal',$('#goal-input').value); } catch {} });
 
+  /* Loading animation */
+  document.body.style.opacity='0';
+  requestAnimationFrame(() => { document.body.style.transition='opacity 0.3s'; document.body.style.opacity='1'; });
+
+  initSettings();
   renderAgentCards();
   await renderChatList();
   newChat();
+  checkAgentHealth();
+  setInterval(checkAgentHealth, 30000);
 })();
