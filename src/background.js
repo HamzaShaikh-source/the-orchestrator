@@ -1,10 +1,14 @@
+/* background.js v2.1 — Production service worker with keepalive */
+
 importScripts('shared.js', 'agents.js', 'prompts.js', 'task-planner.js', 'task-router.js', 'orchestrator.js');
+
+/* Initialize reliability tracking */
+initReliability();
 
 const DEFAULT_STATE = {
   step: 'idle', prompt: '', task: '',
   deepseekResponse: '', chatgptResponse: '',
-  error: null,
-  loopCount: 3, loopIndex: 0, loopPhase: '',
+  error: null, loopCount: 3, loopIndex: 0, loopPhase: '',
   critiques: [], improvements: [],
   deepseekUrl: '', chatgptUrl: '',
 };
@@ -15,12 +19,10 @@ function setState(partial) {
     return chrome.storage.session.set({ state: next });
   });
 }
-
 async function getState() {
   const { state } = await chrome.storage.session.get('state');
   return state || { ...DEFAULT_STATE };
 }
-
 async function getConvHistory() {
   const { convHistory } = await chrome.storage.local.get('convHistory');
   return convHistory || [];
@@ -32,7 +34,7 @@ const AGENT_DOMAINS = [
 ];
 
 async function refreshAgentTabs() {
-  console.log('[BG] Extension installed/reloaded — refreshing agent tabs');
+  console.log('[BG] Extension reloaded — refreshing agent tabs');
   const tabs = await chrome.tabs.query({});
   let refreshed = 0;
   for (const tab of tabs) {
@@ -54,11 +56,22 @@ chrome.runtime.onInstalled.addListener((details) => {
   chrome.storage.session.remove('state');
   if (details.reason === 'update' || details.reason === 'install') refreshAgentTabs();
 });
-
 chrome.runtime.onStartup.addListener(() => refreshAgentTabs());
 
-/* ── Single-agent pipeline (legacy) ── */
+/* ── Keepalive (prevents service worker idle shutdown) ── */
+let bgKeepaliveTimer = null;
+function startBgKeepalive() {
+  stopBgKeepalive();
+  bgKeepaliveTimer = setInterval(() => {
+    chrome.storage.local.get('_ping').catch(() => {});
+  }, 20000);
+}
+function stopBgKeepalive() {
+  if (bgKeepaliveTimer) { clearInterval(bgKeepaliveTimer); bgKeepaliveTimer = null; }
+}
+startBgKeepalive();
 
+/* ── Single-agent pipeline (legacy) ── */
 async function saveConv(entry) {
   if (!entry?.url) return;
   let history = await getConvHistory();
@@ -74,10 +87,10 @@ async function saveConv(entry) {
 
 async function run(prompt, task, loopCount = 3, manualDS = '', manualGPT = '') {
   if (running) {
-    await setState({ step: 'error', error: 'A pipeline is already running. Stop it before starting another run.' });
+    await setState({ step: 'error', error: 'A pipeline is already running.' });
     return;
   }
-  console.log('=== Pipeline starting ===');
+  console.log('=== Legacy pipeline starting ===');
   const gen = ++pipelineGen;
   running = true; cancelled = false;
   await chrome.storage.session.set({ form: { prompt, task } });
@@ -88,10 +101,10 @@ async function run(prompt, task, loopCount = 3, manualDS = '', manualGPT = '') {
     let dsResponse, gptResponse;
     let dsTabId, gptTabId;
 
-    // Step 1: DeepSeek
+    /* Step 1: DeepSeek */
     {
       const dsUrl = manualDS || DEEPSEEK_URL;
-      const ds = await openTab(dsUrl);
+      const ds = await openHiddenTab(dsUrl);
       dsTabId = ds.id;
       await waitTab(ds.id);
       await sleep(4000);
@@ -109,10 +122,10 @@ async function run(prompt, task, loopCount = 3, manualDS = '', manualGPT = '') {
       if (isDeepseekConversationUrl(url)) { await setState({ deepseekUrl: url }); await saveConv({ type: 'deepseek', url, label: prompt.slice(0, 50), date: Date.now() }); }
     }
 
-    // Step 2: ChatGPT initial
+    /* Step 2: ChatGPT initial */
     {
       const gptUrl = manualGPT || CHATGPT_URL;
-      const gpt = await openTab(gptUrl);
+      const gpt = await openHiddenTab(gptUrl);
       gptTabId = gpt.id;
       await waitTab(gpt.id);
       await sleep(5000);
@@ -131,30 +144,30 @@ async function run(prompt, task, loopCount = 3, manualDS = '', manualGPT = '') {
       if (isChatgptConversationUrl(url)) { await setState({ chatgptUrl: url }); await saveConv({ type: 'chatgpt', url, label: prompt.slice(0, 50), date: Date.now() }); }
     }
 
-    // Step 3: Cross-model feedback loop
+    /* Step 3: Cross-model feedback loop */
     const critiques = []; const improvements = [];
     let currentOutput = gptResponse;
     for (let i = 1; i <= loopCount; i++) {
       if (cancelled) throw new CancelError();
       await setState({ step: 'deepseek-wait', loopIndex: i, loopPhase: 'critique' });
-      const dsCritiquePrompt = `Critique the following output. Identify 3-5 specific ways to improve it. Be direct, constructive, and detailed.\n\nOutput to review:\n${currentOutput}`;
+      const dsCritiquePrompt = `Critique the following output. Identify 3-5 specific improvements.\n\n${currentOutput}`;
       let r = await send(dsTabId, { action: 'inject', text: dsCritiquePrompt });
-      if (r?.error) throw new Error('DS inject critique: ' + r.error);
+      if (r?.error) throw new Error('DS critique inject: ' + r.error);
       await sleep(1500);
       r = await send(dsTabId, { action: 'submit' });
-      if (r?.error) throw new Error('DS submit critique: ' + r.error);
+      if (r?.error) throw new Error('DS critique submit: ' + r.error);
       const critique = await poll(dsTabId, dsCritiquePrompt, 120);
       if (cancelled) throw new CancelError();
       critiques.push(critique);
       await setState({ critiques: [...critiques], loopPhase: 'critique-done' });
 
       await setState({ step: 'chatgpt-wait', loopPhase: 'improve' });
-      const improvePrompt = `Apply the following critique to improve the output.\n\nCritique:\n${critique}\n\nOriginal:\n${currentOutput}\n\nImproved:`;
+      const improvePrompt = `Apply this critique:\n${critique}\n\nOriginal:\n${currentOutput}\n\nImproved:`;
       r = await send(gptTabId, { action: 'inject', text: improvePrompt });
-      if (r?.error) throw new Error('GPT inject improve: ' + r.error);
+      if (r?.error) throw new Error('GPT improve inject: ' + r.error);
       await sleep(1500);
       r = await send(gptTabId, { action: 'submit' });
-      if (r?.error) throw new Error('GPT submit improve: ' + r.error);
+      if (r?.error) throw new Error('GPT improve submit: ' + r.error);
       const improved = await poll(gptTabId, improvePrompt, 120);
       if (cancelled) throw new CancelError();
       improvements.push(improved);
@@ -163,10 +176,10 @@ async function run(prompt, task, loopCount = 3, manualDS = '', manualGPT = '') {
     }
 
     await setState({ chatgptResponse: currentOutput, critiques, improvements, step: 'done' });
-    console.log('=== Pipeline complete ===');
+    console.log('=== Legacy pipeline complete ===');
   } catch (err) {
-    if (err instanceof CancelError) { console.log('=== Pipeline cancelled ==='); await setState({ step: 'cancelled', error: null }); return; }
-    console.error('Pipeline failed:', err);
+    if (err instanceof CancelError) { console.log('=== Legacy pipeline cancelled ==='); await setState({ step: 'cancelled', error: null }); return; }
+    console.error('Legacy pipeline failed:', err);
     await setState({ step: 'error', error: err.message });
   } finally { if (pipelineGen === gen) running = false; }
 }
@@ -189,99 +202,32 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 /* ── Message handlers ── */
-
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.action === 'run') {
-    run(msg.prompt, msg.task, msg.loopCount || 3, msg.manualDS || '', msg.manualGPT || '');
-    sendResponse({ ok: true });
-  } else if (msg.action === 'stop') {
-    cancelled = true;
-    setState({ step: 'cancelled', error: null }).then(() => sendResponse({ ok: true }));
-    return true;
-  } else if (msg.action === 'status') {
-    getState().then(sendResponse);
-    return true;
-  } else if (msg.action === 'getConvHistory') {
-    getConvHistory().then(sendResponse);
-    return true;
-  } else if (msg.action === 'clearState') {
-    cancelled = true; running = false; pipelineGen++;
-    chrome.storage.session.set({ state: { ...DEFAULT_STATE } }).then(() => sendResponse({ ok: true }));
-    return true;
-  } else if (msg.action === 'multiStatus') {
-    getMultiState().then(sendResponse);
-    return true;
-  } else if (msg.action === 'stopMulti') {
-    multiCancelled = true;
-    setMultiState({ step: 'cancelled', error: null }).then(() => sendResponse({ ok: true }));
-    return true;
-  } else if (msg.action === 'getAgentConvs') {
-    chrome.storage.local.get('agentConvs').then(({ agentConvs }) => sendResponse(agentConvs || {}));
-    return true;
-  } else if (msg.action === 'runMulti') {
-    runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null, msg.projectFiles || {});
-    sendResponse({ ok: true });
-  } else if (msg.action === 'loginRetry') {
-    loginRetryRequested = true;
-    sendResponse({ ok: true });
-  } else if (msg.action === 'listChats') {
-    listChats().then(sendResponse);
-    return true;
-  } else if (msg.action === 'getChat') {
-    getChat(msg.chatId).then(sendResponse);
-    return true;
-  } else if (msg.action === 'deleteChat') {
-    deleteChat(msg.chatId).then(() => sendResponse({ ok: true }));
-    return true;
-  } else if (msg.action === 'getChatAgentConvs') {
-    getChat(msg.chatId).then(chat => sendResponse(chat?.agentConvs || {}));
-    return true;
-  } else if (msg.action === 'confirmTasks') {
-    setMultiState({ tasksConfirmed: true }).then(() => sendResponse({ ok: true }));
-    return true;
-  } else if (msg.action === 'rejectTasks') {
-    setMultiState({ tasksConfirmed: false }).then(() => sendResponse({ ok: true }));
-    return true;
-  } else if (msg.action === 'retryTask') {
-    getMultiState().then(s => {
-      const tasks = s.tasks || [];
-      if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) {
-        tasks[msg.taskIndex].status = 'pending';
-        setMultiState({ tasks: [...tasks], step: 'running' });
-      }
-    });
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.action === 'skipTask') {
-    getMultiState().then(s => {
-      const tasks = s.tasks || [];
-      if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) {
-        tasks[msg.taskIndex].status = 'skipped';
-        setMultiState({ tasks: [...tasks] });
-      }
-    });
-    sendResponse({ ok: true });
-    return true;
-  } else if (msg.action === 'downloadFile') {
-    /* Download a file via base64 data */
-    const byteStr = atob(msg.data);
-    const bytes = new Uint8Array(byteStr.length);
-    for (let i = 0; i < byteStr.length; i++) bytes[i] = byteStr.charCodeAt(i);
-    const blob = new Blob([bytes], { type: 'application/zip' });
-    const url = URL.createObjectURL(blob);
-    chrome.downloads.download({
-      url,
-      filename: msg.filename || 'download.zip',
-      saveAs: true
-    }).catch(err => {
-      /* Fallback to direct download */
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = msg.filename || 'download.zip';
-      a.click();
-    });
-    sendResponse({ ok: true });
-    return true;
+  const handlers = {
+    run: () => { run(msg.prompt, msg.task, msg.loopCount || 3, msg.manualDS || '', msg.manualGPT || ''); return { ok: true }; },
+    stop: () => { cancelled = true; setState({ step: 'cancelled', error: null }); return true; },
+    status: () => { getState().then(sendResponse); return true; },
+    getConvHistory: () => { getConvHistory().then(sendResponse); return true; },
+    clearState: () => { cancelled = true; running = false; pipelineGen++; chrome.storage.session.set({ state: { ...DEFAULT_STATE } }).then(() => sendResponse({ ok: true })); return true; },
+    multiStatus: () => { getMultiState().then(sendResponse); return true; },
+    stopMulti: () => { multiCancelled = true; setMultiState({ step: 'cancelled', error: null }); return { ok: true }; },
+    getAgentConvs: () => { chrome.storage.local.get('agentConvs').then(({ agentConvs }) => sendResponse(agentConvs || {})); return true; },
+    runMulti: () => { runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null, msg.projectFiles || {}); return { ok: true }; },
+    loginRetry: () => { loginRetryRequested = true; return { ok: true }; },
+    listChats: () => { listChats().then(sendResponse); return true; },
+    getChat: () => { getChat(msg.chatId).then(sendResponse); return true; },
+    deleteChat: () => { deleteChat(msg.chatId).then(() => sendResponse({ ok: true })); return true; },
+    confirmTasks: () => { setMultiState({ tasksConfirmed: true }); return { ok: true }; },
+    rejectTasks: () => { setMultiState({ tasksConfirmed: false }); return { ok: true }; },
+    retryTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'pending'; setMultiState({ tasks: [...tasks], step: 'running' }); }}); return true; },
+    skipTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'skipped'; setMultiState({ tasks: [...tasks] }); }}); return true; },
+  };
+
+  const handler = handlers[msg.action];
+  if (handler) {
+    const result = handler();
+    if (result === true) return true; /* async */
+    sendResponse(result);
   }
   return false;
 });

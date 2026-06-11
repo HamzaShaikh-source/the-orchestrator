@@ -1,31 +1,21 @@
-/* Orchestrator — BRAIN-CENTERED architecture
- *
- * ChatGPT is the "brain" that:
- * 1. Creates detailed task specs for each specialist
- * 2. Reviews every specialist's output
- * 3. Maintains shared project state
- * 4. Continuously synthesizes results
- *
- * Specialists (DeepSeek, etc.) execute brain-assigned tasks.
- */
+/* orchestrator.js v2.1 — Production pipeline: dependency ordering, cleanup, error recovery */
 
-const AGENT_SELECT_PROMPT = `You are an agent selection system for a multi-AI pipeline. Given a user goal, select the best combination of AI agents from this list:
+const AGENT_SELECT_PROMPT = `You are an agent selection system. Given a user goal, select the best combination of AI agents:
 
-- deepseek: Best at code generation, logical reasoning, technical tasks, debugging
-- chatgpt: Best at creative writing, content creation, instruction following, explanations, UI/UX
-- gemini: Best at analysis, structured thinking, multimodal understanding, research synthesis
-- perplexity: Best at web research, fact-checking, finding current information with citations
-- huggingface: Best at specialized NLP, code generation, translation, summarization
+- deepseek: Code, reasoning, technical
+- chatgpt: Creative writing, instructions, UI/UX
+- gemini: Analysis, structured thinking, multimodal
+- perplexity: Web research, fact-checking, citations
+- huggingface: Specialized NLP, translation, summarization
 
 Return ONLY valid JSON with no markdown:
-{"selected":["agent1","agent2",...,"agentN"],"reasoning":"one sentence why each was chosen"}
+{"selected":["agent1","agent2",...,"agentN"],"reasoning":"one sentence"}
 
 Select 2-4 agents. User goal:`;
 
 const BRAIN_ID = 'deepseek';
 
 /* ── Agent Selection ── */
-
 async function aiSelectAgents(goal, usedTabs) {
   const selector = getAgent(BRAIN_ID);
   if (!selector) return null;
@@ -34,8 +24,8 @@ async function aiSelectAgents(goal, usedTabs) {
   console.log(`[Selector] Asking ${selector.name} to select agents`);
 
   let tab = usedTabs[selector.id];
-  if (!tab || !await tabAlive(tab.id)) {
-    tab = await openTab(selector.url);
+  if (!tab || !(await tabAlive(tab.id))) {
+    tab = await openHiddenTab(selector.url);
     usedTabs[selector.id] = tab;
   }
   await waitTab(tab.id);
@@ -75,26 +65,36 @@ async function aiSelectAgents(goal, usedTabs) {
 }
 
 /* ── Tab helpers ── */
-
 async function ensureTab(agent, usedTabs, manualUrls, taskKey) {
   const key = taskKey || agent.id;
   let tab = usedTabs[key];
-  if (tab && await tabAlive(tab.id)) return tab;
+  if (tab && (await tabAliveWithRetry(tab.id))) return tab;
   tab = await getOrCreateTab(agent, manualUrls[agent.id]);
   usedTabs[key] = tab;
   return tab;
 }
 
 /* ── Error messages ── */
-
 function friendlyError(err, agentName) {
   const msg = (err?.message || err || '').toLowerCase();
-  if (msg.includes('content_script')) return `${agentName}'s page needs a refresh. Open ${agentName}, refresh, and try again.`;
-  if (msg.includes('submit')) return `${agentName}'s send button couldn't be found. The UI may have changed.`;
-  if (msg.includes('inject')) return `Couldn't type into ${agentName}'s input field.`;
-  if (msg.includes('timeout') || msg.includes('poll')) return `${agentName} took too long to respond. Try again later.`;
+  if (msg.includes('content_script')) return `${agentName} page needs refresh. Open ${agentName} manually and reload.`;
+  if (msg.includes('submit')) return `${agentName} send button not found. The UI may have changed.`;
+  if (msg.includes('inject')) return `Could not type into ${agentName}.`;
+  if (msg.includes('timeout') || msg.includes('poll')) return `${agentName} took too long. Try a simpler task.`;
   if (msg.includes('cancel')) return 'Cancelled.';
   return `${agentName}: ${err?.message || err}`;
+}
+
+/* ── Task execution with retry and dependency ordering ── */
+
+/* Determine task dependency order based on types */
+function orderTasksByDependency(tasks) {
+  if (!tasks || tasks.length <= 1) return tasks;
+  const order = ['analysis', 'design', 'code', 'creative', 'writing', 'technical', 'research'];
+  return [...tasks].sort((a, b) => {
+    const ai = order.indexOf(a.type), bi = order.indexOf(b.type);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
 }
 
 async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, allAgentOutputs, goal, projectFiles = {}, taskKey) {
@@ -120,7 +120,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
         throw new Error('content_script_not_detected');
       }
 
-      /* Step 1: Get instruction — skip brain writing if all tasks go to same agent */
+      /* Get instruction — skip brain writing if all tasks go to same agent */
       const assignedAgents = tasks.map(t => t.assignedTo).filter(Boolean);
       const allSameAgent = assignedAgents.length > 0 && assignedAgents.every(a => a === assignedAgents[0]);
       let instruction;
@@ -132,25 +132,25 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
         instruction = buildTaskPrompt(task, tasks, allAgentOutputs, goal);
       }
 
-      /* Step 2: Specialist executes */
+      /* Specialist executes */
       console.log(`[Brain] ${agent.name} executing: ${task.description.slice(0, 50)}`);
       await setMultiState({ step: 'brain-executing', brainPhase: `${agent.name} executing task...`, agentOutputs: { ...agentOutputs } });
 
       let r = await send(tab.id, { action: 'inject', text: instruction });
-      if (r?.error) throw new Error(`inject_error: ${r.error}`);
+      if (r?.error) throw new Error(`inject: ${r.error}`);
       await sleep(1500);
 
       r = await send(tab.id, { action: 'submit' });
-      if (r?.error) throw new Error(`submit_error: ${r.error}`);
+      if (r?.error) throw new Error(`submit: ${r.error}`);
 
       const specialistOutput = await pollWithProgress(tab.id, task.description, 120, agent.id, agentOutputs);
       if (multiCancelled) throw new CancelError();
 
       if (!specialistOutput || specialistOutput === '\u26a0\ufe0f Timeout') {
-        throw new Error('timeout: specialist did not respond');
+        throw new Error('timeout: no response from agent');
       }
 
-      /* Step 3: Heuristic review */
+      /* Heuristic review */
       const finalOutput = await brainReviewOutput(task, agent, specialistOutput);
 
       agentOutputs[agent.id] = { output: finalOutput, status: 'done', task: task.description, agent: agent.name };
@@ -164,7 +164,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       lastError = err;
       console.error(`[Orch] Attempt ${attempt}/${maxRetries} failed:`, err.message);
       if (attempt < maxRetries) {
-        agentOutputs[agent.id] = { output: '', status: 'retrying', error: `Retrying...`, task: task.description, agent: agent.name };
+        agentOutputs[agent.id] = { output: '', status: 'retrying', error: `Retry ${attempt}...`, task: task.description, agent: agent.name };
         await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
       }
     }
@@ -177,7 +177,6 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
 }
 
 /* ── Poll with progress ── */
-
 async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
   let last = '';
   let stable = 0;
@@ -190,7 +189,7 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
     const r = await send(tabId, { action: 'read' });
     if (r?.error) {
       readFailures++;
-      if (readFailures >= 8) throw new Error(r.error);
+      if (readFailures >= 10) throw new Error(r.error);
       await sleep(1000);
       continue;
     }
@@ -200,22 +199,20 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
       stable = 0; last = ''; await sleep(1000); continue;
     }
 
-    /* Text is growing — still streaming, don't count as stable */
     if (cur.length > maxLen) {
       maxLen = cur.length;
       stable = 0;
       last = cur;
     } else if (cur === last) {
       stable++;
-      /* Require longer stability for longer texts */
-      const required = cur.length > 2000 ? 20 : cur.length > 500 ? 15 : 10;
+      const required = Math.min(20, Math.max(5, Math.floor(cur.length / 200)));
       if (stable >= required && cur.length > 10) return cur;
     } else {
       stable = 0;
       last = cur;
     }
 
-    /* Push progress updates to UI */
+    /* Push progress to UI */
     if (cur.length > 20 && agentOutputs) {
       const existing = agentOutputs[agentId] || {};
       agentOutputs[agentId] = { ...existing, output: cur, status: 'streaming' };
@@ -233,16 +230,16 @@ async function pollWithProgress(tabId, prompt, maxSec, agentId, agentOutputs) {
 }
 
 /* ── Main pipeline ── */
-
 async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = null, projectFiles = {}) {
   if (multiRunning) {
     await setMultiState({ step: 'error', error: 'Pipeline already running.' });
     return;
   }
 
-  console.log('=== THE ORCHESTRATOR — Brain-centered pipeline ===');
+  console.log('=== THE ORCHESTRATOR v2.1 — Production pipeline ===');
   multiRunning = true;
   multiCancelled = false;
+  startKeepalive();
 
   try {
     const usedTabs = {};
@@ -254,14 +251,14 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       const loginResult = await runLoginCheck(finalAgents);
       if (!loginResult.allDone) {
         await setMultiState({ step: 'login-check', loginCheck: { ...loginResult, status: 'failed' } });
-        multiRunning = false; return;
+        multiRunning = false; stopKeepalive(); return;
       }
     } else {
       await setMultiState({ step: 'login-check', goal, selectedAgents: [], tasks: [], agentOutputs: {}, synthesis: '' });
       const selectorCheck = await runLoginCheck([BRAIN_ID]);
       if (!selectorCheck.allDone) {
-        await setMultiState({ step: 'login-check', loginCheck: { ...selectorCheck, status: 'failed', error: 'ChatGPT must be logged in.' } });
-        multiRunning = false; return;
+        await setMultiState({ step: 'login-check', loginCheck: { ...selectorCheck, status: 'failed', error: 'Brain agent must be logged in.' } });
+        multiRunning = false; stopKeepalive(); return;
       }
       await setMultiState({ step: 'agent-selection' });
       const aiResult = await aiSelectAgents(goal, usedTabs);
@@ -279,7 +276,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
         const loginResult = await runLoginCheck(remaining);
         if (!loginResult.allDone) {
           await setMultiState({ step: 'login-check', loginCheck: { ...loginResult, status: 'failed' } });
-          multiRunning = false; return;
+          multiRunning = false; stopKeepalive(); return;
         }
       }
     }
@@ -292,11 +289,12 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     let tasks = await planTasks(goal, usedTabs);
     if (multiCancelled) throw new CancelError();
 
-    /* ── 2. Route ── */
+    /* ── 2. Route with dependency ordering ── */
+    tasks = orderTasksByDependency(tasks);
     tasks = routeAll(tasks, finalAgents);
     if (multiCancelled) throw new CancelError();
 
-    /* ── 2b. User confirmation ── */
+    /* ── 2b. User confirmation with timeout ── */
     await setMultiState({ tasks, step: 'confirm-tasks' });
     const confirmTimeout = 300000;
     const confirmStart = Date.now();
@@ -306,26 +304,16 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       const state = await getMultiState();
       if (state.tasksConfirmed === true) { confirmed = true; break; }
       if (state.tasksConfirmed === false) {
-        await setMultiState({ step: 'cancelled' }); multiRunning = false; return;
+        await setMultiState({ step: 'cancelled' }); multiRunning = false; stopKeepalive(); return;
       }
       await sleep(500);
     }
     if (multiCancelled) throw new CancelError();
 
-    /* ── 3. Execute: Parallel across different agents ── */
+    /* ── 3. Execute: ALL tasks in parallel ── */
     const agentOutputs = {};
-
     await setMultiState({ tasks: [...tasks], step: 'running' });
 
-    /* Group tasks by agent for parallel execution */
-    const agentGroups = {};
-    for (const task of tasks) {
-      const id = task.assignedTo || 'unassigned';
-      if (!agentGroups[id]) agentGroups[id] = [];
-      agentGroups[id].push(task);
-    }
-
-    /* Run ALL tasks in parallel — each task gets its own tab */
     const allTaskPromises = tasks.map(async (task) => {
       if (multiCancelled) throw new CancelError();
       const agent = getAgent(task.assignedTo);
@@ -335,7 +323,6 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
       await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
 
       try {
-        /* Use task-specific tab key so each task gets its own tab */
         const taskKey = agent.id + '-' + tasks.indexOf(task);
         await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, taskKey);
       } catch (err) {
@@ -354,36 +341,27 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     const parts = completedOutputs.map(([id, d]) => `=== ${getAgent(id)?.name || id} ===\n${d.output}`).join('\n\n');
 
     if (parts) {
-      /* Brain generates the actual implementation files based on all specialist outputs */
-      const synthPrompt = `You are the BRAIN. Your specialists have produced architecture, design, and content specifications for a project.
+      const synthPrompt = `You are the BRAIN. Your specialists have produced specifications for a project.
 
 Original Goal: ${goal}
 
 Specialist Outputs:
 ${parts}
 
-Your job: Based on ALL the specialist outputs above, generate the ACTUAL implementation files. Produce complete, working code files.
+Your job: Based on ALL outputs above, generate the ACTUAL implementation files. Produce complete, working code.
 
 Wrap each file in <file name="filename.ext"> and </file> tags.
 
-Example format:
+Example:
 <file name="index.html">
 <!DOCTYPE html>
-<html>
-...
-</html>
-</file>
-<file name="style.css">
-/* CSS */
-</file>
-<file name="script.js">
-// JS
+<html>...</html>
 </file>
 
-Generate ALL the files needed to make this project work. Make them complete, production-ready, and based on the specifications from your specialists.`;
+Generate ALL files needed. Make them complete and production-ready.`;
 
       const synthTab = usedTabs[BRAIN_ID];
-      if (synthTab && await tabAlive(synthTab.id) && await waitForContentScript(synthTab.id)) {
+      if (synthTab && (await tabAlive(synthTab.id)) && (await waitForContentScript(synthTab.id))) {
         let r = await send(synthTab.id, { action: 'inject', text: synthPrompt });
         if (!r?.error) {
           await sleep(1000);
@@ -417,7 +395,7 @@ Generate ALL the files needed to make this project work. Make them complete, pro
       } catch (e) { console.error('Failed to save chat:', e); }
     }
 
-    console.log('=== The Orchestrator pipeline complete ===');
+    console.log('=== Pipeline complete ===');
   } catch (err) {
     if (err instanceof CancelError) {
       console.log('=== Pipeline cancelled ===');
@@ -428,5 +406,8 @@ Generate ALL the files needed to make this project work. Make them complete, pro
   } finally {
     multiRunning = false;
     setMultiState({ tasksConfirmed: null });
+    /* Cleanup hidden window */
+    setTimeout(() => cleanupHiddenWindow(), 5000);
+    stopKeepalive();
   }
 }

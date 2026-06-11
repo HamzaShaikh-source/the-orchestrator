@@ -1,36 +1,29 @@
-/* Multi-Agent UI — The Orchestrator Dashboard */
+/* v2.1 — Production UI: 1s poll, robust reconnection, agent health */
+
 const $ = id => document.getElementById(id.replace('#', ''));
 let pollTimer = null, running = false, currentChatId = null, selectedAgents = [];
 let projectFiles = {}, attachedFiles = [];
 let pipelineStartTime = null, _lastOutputs = null;
+let _reconnectAttempts = 0;
 
-/* ── Settings defaults & persistence ── */
+/* ── Settings ── */
 const SETTINGS_KEY = 'orchestratorSettings';
-const DEFAULT_SETTINGS = { retries:2, maxAgents:4, pollMs:800, sound:true, notification:true, autoscroll:true, animSpeed:100 };
+const DEFAULT_SETTINGS = { retries:2, maxAgents:4, pollMs:1000, sound:true, notification:true, autoscroll:true, animSpeed:100 };
 let settings = { ...DEFAULT_SETTINGS };
 
 function loadSettings() {
-  try {
-    const s = localStorage.getItem(SETTINGS_KEY);
-    if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
-  } catch {}
+  try { const s = localStorage.getItem(SETTINGS_KEY); if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) }; } catch {}
 }
 function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
 }
 function applySettingsUI() {
-  const els = ['retries','max-agents','poll-ms','sound','notification','autoscroll','anim-speed'];
-  els.forEach(k => {
+  ['retries','max-agents','poll-ms','sound','notification','autoscroll','anim-speed'].forEach(k => {
     const el = document.getElementById(`setting-${k}`);
     if (!el) return;
     const key = k.replace('-','');
-    if (el.type === 'checkbox' || el.classList.contains('toggle-switch')) {
-      el.classList.toggle('on', !!settings[key]);
-    } else if (el.type === 'range') {
-      el.value = settings[key];
-    } else {
-      el.value = settings[key];
-    }
+    if (el.classList.contains('toggle-switch')) el.classList.toggle('on', !!settings[key]);
+    else el.value = settings[key];
   });
 }
 
@@ -48,12 +41,8 @@ function showToast(msg, type = 'info') {
 function renderAgentCards() {
   const strip = $('#agent-strip');
   if (!strip) return;
-  const existingLabel = strip.querySelector('.agent-strip-label');
-  strip.innerHTML = '';
-  if (existingLabel) strip.appendChild(existingLabel);
-  else { const l = document.createElement('span'); l.className='agent-strip-label'; l.textContent='Agents:'; strip.appendChild(l); }
-
-  allActiveAgents().map(a => {
+  strip.innerHTML = '<span class="agent-strip-label">Agents:</span>';
+  allActiveAgents().forEach(a => {
     const div = document.createElement('div');
     div.className = `agent-chip ${selectedAgents.includes(a.id) ? 'selected' : ''}`;
     div.dataset.agent = a.id;
@@ -62,12 +51,11 @@ function renderAgentCards() {
     div.addEventListener('click', () => {
       if (running) return;
       const idx = selectedAgents.indexOf(a.id);
-      if (idx >= 0) selectedAgents.splice(idx, 1);
-      else selectedAgents.push(a.id);
+      if (idx >= 0) selectedAgents.splice(idx, 1); else selectedAgents.push(a.id);
       renderAgentCards();
     });
     div.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', a.id); div.style.opacity='0.4'; });
-    div.addEventListener('dragend', () => { div.style.opacity='1'; });
+    div.addEventListener('dragend', function() { this.style.opacity='1'; });
     div.addEventListener('dragover', e => e.preventDefault());
     div.addEventListener('drop', e => {
       e.preventDefault();
@@ -104,19 +92,16 @@ function renderTasks(tasks, editable) {
   const c = $('#task-list');
   if (!tasks?.length) { $('#tasks-section')?.classList.add('hidden'); return; }
   $('#tasks-section')?.classList.remove('hidden');
-  c.innerHTML = tasks.map((t,i) => {
-    const animDelay = settings.animSpeed ? `animation-delay:${i*40}ms` : '';
-    return `<div class="task-tile" style="${animDelay}">
-      <div class="tile-num">#${i+1}</div>
-      <div class="tile-body">
-        <div class="tile-status ${t.status}">${t.status||'pending'}</div>
-        <div class="tile-desc">${editable ? `<textarea data-index="${i}" class="tile-edit">${esc(t.description)}</textarea>` : esc(t.description)}</div>
-        <div class="tile-agent">→ ${t.assignedTo||'unassigned'}</div>
-        ${t.status==='error'?`<button class="retry-task" data-index="${i}" style="margin-top:6px;background:transparent;border:1px solid var(--danger);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--danger)">⟳ Retry</button>`:''}
-        ${t.status==='in-progress'?`<button class="skip-task" data-index="${i}" style="margin-top:6px;margin-left:6px;background:transparent;border:1px solid var(--warning);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--warning)">⏭ Skip</button>`:''}
-      </div>
-    </div>`;
-  }).join('');
+  c.innerHTML = tasks.map((t,i) => `<div class="task-tile" style="${settings.animSpeed?`animation-delay:${i*40}ms`:''}">
+    <div class="tile-num">#${i+1}</div>
+    <div class="tile-body">
+      <div class="tile-status ${t.status}">${t.status||'pending'}</div>
+      <div class="tile-desc">${editable ? `<textarea data-index="${i}" class="tile-edit">${esc(t.description)}</textarea>` : esc(t.description)}</div>
+      <div class="tile-agent">→ ${t.assignedTo||'unassigned'}</div>
+      ${t.status==='error'?`<button class="retry-task" data-index="${i}" style="margin-top:6px;background:transparent;border:1px solid var(--danger);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--danger)">⟳ Retry</button>`:''}
+      ${t.status==='in-progress'?`<button class="skip-task" data-index="${i}" style="margin-top:6px;margin-left:6px;background:transparent;border:1px solid var(--warning);border-radius:40px;padding:4px 12px;font-size:0.7rem;cursor:pointer;color:var(--warning)">⏭ Skip</button>`:''}
+    </div>
+  </div>`).join('');
 }
 
 /* ── Outputs ── */
@@ -131,18 +116,16 @@ function renderOutputs(ao) {
       <span>${total} agents · ${done} done · ${err} errored</span>
       <button id="toggle-outputs" style="background:none;border:1px solid var(--border);border-radius:40px;padding:4px 14px;font-size:0.75rem;cursor:pointer;color:var(--text-secondary)">Show details</button>
     </div>
-    <div id="outputs-detail" style="display:none">
-      ${Object.entries(ao).map(([id,data])=>{
-        const a = getAgent(id); if(!a) return '';
-        const badge = data.status==='streaming'?'⏳':data.status==='done'?'✅':data.status==='error'?'❌':'';
-        const text = data.output||data.error||'Waiting...';
-        return `<div class="output-card" style="animation-delay:${Object.keys(ao).indexOf(id)*50}ms">
-          <div class="header"><span>${a.icon}</span> ${a.name} <span style="margin-left:auto">${badge}</span></div>
-          <div class="body">${highlightSyntax(text)}</div>
-          <button class="copy-output" data-text="${escAttr(text)}" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;cursor:pointer;color:var(--text-secondary)">📋 Copy</button>
-        </div>`;
-      }).join('')}
-    </div>`;
+    <div id="outputs-detail" style="display:none">${Object.entries(ao).map(([id,data])=>{
+      const a = getAgent(id); if(!a) return '';
+      const badge = data.status==='streaming'?'⏳':data.status==='done'?'✅':data.status==='error'?'❌':'';
+      const text = data.output||data.error||'Waiting...';
+      return `<div class="output-card" style="animation-delay:${Object.keys(ao).indexOf(id)*50}ms">
+        <div class="header"><span>${a.icon}</span> ${a.name} <span style="margin-left:auto">${badge}</span></div>
+        <div class="body">${highlightSyntax(text)}</div>
+        <button class="copy-output" data-text="${escAttr(text)}" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:11px;cursor:pointer;color:var(--text-secondary)">📋 Copy</button>
+      </div>`;
+    }).join('')}</div>`;
   const tg = document.getElementById('toggle-outputs');
   if (tg) tg.onclick = () => {
     const d = document.getElementById('outputs-detail');
@@ -158,16 +141,20 @@ const FILE_RE = /<file\s+name=["']([^"']+)["']>([\s\S]*?)<\/file>/gi;
 function syncFilesFromText(text) {
   if (!text) return;
   let changed = false, m;
-  while ((m = FILE_RE.exec(text))) {
-    const name = m[1].trim(), content = m[2].trim();
-    if (projectFiles[name] !== content) { projectFiles[name] = content; changed = true; }
+  while ((m = FILE_RE.exec(text))) { const n=m[1].trim(),c=m[2].trim(); if(projectFiles[n]!==c){projectFiles[n]=c;changed=true;} }
+  /* Also detect bare code blocks (```html, ```css, ```js) */
+  const CODE_BLOCK = /```(\w+)\n([\s\S]*?)```/g;
+  if (!changed) {
+    let idx = 0;
+    while ((m = CODE_BLOCK.exec(text)) && idx < 10) {
+      const ext = m[1] === 'html' ? 'html' : m[1] === 'css' ? 'css' : m[1] === 'js' || m[1] === 'javascript' ? 'js' : m[1];
+      const name = `output-${idx}.${ext}`;
+      if (!projectFiles[name]) { projectFiles[name] = m[2].trim(); changed = true; idx++; }
+    }
   }
   if (changed) renderFilePanel();
 }
-function syncFilesFromAI(ao) {
-  if (!ao) return;
-  for (const [,data] of Object.entries(ao)) syncFilesFromText(data.output);
-}
+function syncFilesFromAI(ao) { if(!ao)return; for(const[,d]of Object.entries(ao))syncFilesFromText(d.output); }
 function syncFilesFromSynthesis(t) { syncFilesFromText(t); }
 
 /* ── File panel ── */
@@ -178,146 +165,104 @@ function renderFilePanel() {
   if (old) old.remove();
   const content = $('content');
   if (!content) return;
-
-  const panel = document.createElement('div');
-  panel.id = 'file-panel-output';
-  panel.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent)">✅ Generated Files (${names.length})</div>
-      <div class="file-tabs">
-        <button class="file-tab active" data-view="grid">Grid</button>
-        <button class="file-tab" data-view="list">List</button>
-      </div>
+  const panel = document.createElement('div'); panel.id = 'file-panel-output';
+  panel.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--accent)">✅ Generated Files (${names.length})</div>
+    <div class="file-tabs"><button class="file-tab active" data-view="grid">Grid</button><button class="file-tab" data-view="list">List</button></div>
+  </div>
+  <div class="file-grid" id="file-grid">${names.map(n=>{const e=n.split('.').pop();return `<div class="file-item" data-name="${escAttr(n)}">
+    <span class="file-icon">${e==='html'?'🌐':e==='css'?'🎨':e==='js'?'⚡':e==='json'?'📋':e==='md'?'📝':'📄'}</span>
+    <div class="file-info"><div class="file-name">${esc(n)}</div><div class="file-meta">${(projectFiles[n].length/1024).toFixed(1)}KB</div></div>
+    <div class="file-actions">
+      <button class="file-action-btn" data-action="copy" data-name="${escAttr(n)}">📋</button>
+      <button class="file-action-btn" data-action="edit" data-name="${escAttr(n)}">✏️</button>
+      <button class="file-action-btn" data-action="preview" data-name="${escAttr(n)}" ${n.endsWith('.html')?'':'style="display:none"'}>👁</button>
+      <button class="file-action-btn" data-action="delete" data-name="${escAttr(n)}" style="color:var(--danger)">🗑</button>
     </div>
-    <div class="file-grid" id="file-grid">
-      ${names.map(n=>{
-        const ext = n.split('.').pop();
-        const icon = ext==='html'?'🌐':ext==='css'?'🎨':ext==='js'?'⚡':ext==='json'?'📋':ext==='md'?'📝':'📄';
-        return `<div class="file-item" data-name="${escAttr(n)}">
-          <span class="file-icon">${icon}</span>
-          <div class="file-info">
-            <div class="file-name">${esc(n)}</div>
-            <div class="file-meta">${(projectFiles[n].length/1024).toFixed(1)} KB</div>
-          </div>
-          <div class="file-actions">
-            <button class="file-action-btn" data-action="copy" data-name="${escAttr(n)}">📋</button>
-            <button class="file-action-btn" data-action="edit" data-name="${escAttr(n)}">✏️</button>
-            <button class="file-action-btn" data-action="preview" data-name="${escAttr(n)}" ${n.endsWith('.html')?'':'style="display:none"'}>👁</button>
-            <button class="file-action-btn" data-action="delete" data-name="${escAttr(n)}" style="color:var(--danger)">🗑</button>
-          </div>
-        </div>`;
-      }).join('')}
-    </div>
-    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
-      <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download (.zip)</button>
-      <button id="preview-html-btn" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:40px;padding:10px 24px;font-weight:500;cursor:pointer;font-size:0.85rem">👁 Preview HTML</button>
-    </div>
-    <div id="preview-container" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:450px">
-      <iframe id="preview-iframe" style="width:100%;height:100%;border:none;background:white"></iframe>
-    </div>`;
-
+  </div>`;}).join('')}</div>
+  <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+    <button id="download-zip-btn" style="background:var(--accent);color:white;border:none;border-radius:40px;padding:10px 24px;font-weight:600;cursor:pointer;font-size:0.85rem">⬇ Download (.zip)</button>
+    <button id="preview-html-btn" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:40px;padding:10px 24px;font-weight:500;cursor:pointer;font-size:0.85rem">👁 Preview HTML</button>
+  </div>
+  <div id="preview-container" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;height:450px">
+    <iframe id="preview-iframe" style="width:100%;height:100%;border:none;background:white"></iframe>
+  </div>`;
   content.appendChild(panel);
 
-  /* Tab switching */
   panel.querySelectorAll('.file-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      panel.querySelectorAll('.file-tab').forEach(t => t.classList.remove('active'));
+      panel.querySelectorAll('.file-tab').forEach(t=>t.classList.remove('active'));
       tab.classList.add('active');
       document.getElementById('file-grid').className = tab.dataset.view === 'list' ? 'file-list' : 'file-grid';
     });
   });
-
-  /* File actions */
   panel.querySelectorAll('.file-item').forEach(item => {
     item.addEventListener('click', e => {
       if (e.target.closest('.file-action-btn')) return;
-      const name = item.dataset.name;
-      const content = projectFiles[name];
-      if (!content) return;
-      if (name.endsWith('.html') && confirm(`Preview ${name}?`)) {
-        const container = document.getElementById('preview-container');
-        const iframe = document.getElementById('preview-iframe');
-        if (!container||!iframe) return;
-        container.style.display = container.style.display==='block'?'none':'block';
-        if (container.style.display==='block') { iframe.src = URL.createObjectURL(new Blob([content],{type:'text/html'})); }
-      } else {
-        const lines = content.split('\n').slice(0,30).join('\n');
-        const s = window.open('','_blank','width=800,height=600');
-        if (s) { s.document.write(`<pre style="font:14px monospace;padding:20px;background:#0a0c10;color:#eef1f5;white-space:pre-wrap">${esc(content)}</pre>`); s.document.close(); }
-      }
+      const n = item.dataset.name, c = projectFiles[n];
+      if (!c) return;
+      if (n.endsWith('.html') && confirm(`Preview ${n}?`)) {
+        const ct = document.getElementById('preview-container'), f = document.getElementById('preview-iframe');
+        if (!ct||!f) return;
+        ct.style.display = ct.style.display==='block'?'none':'block';
+        if (ct.style.display==='block') f.src = URL.createObjectURL(new Blob([c],{type:'text/html'}));
+      } else { const s=window.open('','_blank','width=800,height=600'); if(s){s.document.write(`<pre style="font:14px monospace;padding:20px;background:#0a0c10;color:#eef1f5;white-space:pre-wrap">${esc(c)}</pre>`);s.document.close();} }
     });
   });
+  panel.querySelectorAll('[data-action="copy"]').forEach(b => b.addEventListener('click', e=>{e.stopPropagation();navigator.clipboard.writeText(projectFiles[b.dataset.name]||'').then(()=>showToast('Copied!'));}));
+  panel.querySelectorAll('[data-action="edit"]').forEach(b => b.addEventListener('click', e=>{e.stopPropagation();const n=b.dataset.name,c=projectFiles[n]||'',r=prompt(`Edit ${n}:`,c.substring(0,5000));if(r!==null){projectFiles[n]=r;showToast(`Saved ${n}`);renderFilePanel();}}));
+  panel.querySelectorAll('[data-action="delete"]').forEach(b => b.addEventListener('click', e=>{e.stopPropagation();const n=b.dataset.name;if(confirm(`Delete ${n}?`)){delete projectFiles[n];renderFilePanel();showToast(`Deleted ${n}`);}}));
 
-  panel.querySelectorAll('[data-action="copy"]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); navigator.clipboard.writeText(projectFiles[b.dataset.name]||'').then(()=>showToast('Copied!')); }));
-  panel.querySelectorAll('[data-action="edit"]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const name = b.dataset.name, content = projectFiles[name]||'';
-    const n = prompt(`Edit ${name}:`, content.substring(0,5000));
-    if (n !== null) { projectFiles[name] = n; showToast(`Saved ${name}`); renderFilePanel(); }
-  }));
-  panel.querySelectorAll('[data-action="delete"]').forEach(b => b.addEventListener('click', e => {
-    e.stopPropagation();
-    const name = b.dataset.name;
-    if (confirm(`Delete ${name}?`)) { delete projectFiles[name]; renderFilePanel(); showToast(`Deleted ${name}`); }
-  }));
-
-  /* Download ZIP */
-  const dlBtn = document.getElementById('download-zip-btn');
-  if (dlBtn) dlBtn.addEventListener('click', () => {
-    const files = Object.entries(projectFiles).map(([n,c])=>({name:n,content:c}));
-    if (!files.length) return showToast('No files','error');
-    const enc = new TextEncoder();
-    const parts = []; let offset = 0; const centralParts = [];
-    for (const f of files) {
-      const data = enc.encode(f.content), name = enc.encode(f.name);
-      let crc = 0xffffffff;
-      for (let i=0;i<data.length;i++){crc ^=data[i];for(let j=0;j<8;j++)crc=(crc>>>1)^(crc&1?0xedb88320:0);}
-      crc = (crc^0xffffffff)>>>0;
-      const sz=data.length, nl=name.length;
-      const buf=new ArrayBuffer(30); const v=new DataView(buf);
-      v.setUint32(0,0x04034b50,true); v.setUint16(4,20,true); v.setUint16(6,0,true);
-      v.setUint16(8,0,true); v.setUint16(10,0,true); v.setUint16(12,0,true);
-      v.setUint32(14,crc,true); v.setUint32(18,sz,true); v.setUint32(22,sz,true);
-      v.setUint16(26,nl,true); v.setUint16(28,0,true);
-      parts.push(new Uint8Array(buf),name,data);
-      const cbuf=new ArrayBuffer(46); const cv=new DataView(cbuf);
-      cv.setUint32(0,0x02014b50,true); cv.setUint16(4,20,true); cv.setUint16(6,20,true);
-      cv.setUint16(8,0,true); cv.setUint16(10,0,true); cv.setUint16(12,0,true); cv.setUint16(14,0,true);
-      cv.setUint32(16,crc,true); cv.setUint32(20,sz,true); cv.setUint32(24,sz,true);
-      cv.setUint16(28,nl,true); cv.setUint16(30,0,true); cv.setUint16(32,0,true);
-      cv.setUint16(34,0,true); cv.setUint16(36,0,true); cv.setUint32(38,0,true); cv.setUint32(42,offset,true);
-      centralParts.push({h:new Uint8Array(cbuf),name}); offset += 30+nl+sz;
-    }
-    let cs=0; for(const c of centralParts){parts.push(c.h,c.name);cs+=46+c.name.length;}
-    const eocd=new ArrayBuffer(22); const ev=new DataView(eocd);
-    ev.setUint32(0,0x06054b50,true); ev.setUint16(4,0,true); ev.setUint16(6,0,true);
-    ev.setUint16(8,files.length,true); ev.setUint16(10,files.length,true);
-    ev.setUint32(12,cs,true); ev.setUint32(16,offset,true); ev.setUint16(20,0,true);
-    parts.push(new Uint8Array(eocd));
-    const total=parts.reduce((s,p)=>s+p.length,0), merged=new Uint8Array(total);
-    let pos=0; for(const p of parts){merged.set(p,pos);pos+=p.length;}
-    const blob=new Blob([merged],{type:'application/zip'}), url=URL.createObjectURL(blob);
-    const a=document.createElement('a'); a.href=url;
-    const goalName=($('#goal-input').value||'project').substring(0,30).replace(/[^a-z0-9]/gi,'_').toLowerCase();
-    a.download=`${goalName}-files.zip`; document.body.appendChild(a); a.click();
-    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},3000);
-    showToast(`Downloaded ${goalName}-files.zip`);
-  });
-
-  /* Preview HTML */
+  document.getElementById('download-zip-btn')?.addEventListener('click', downloadZip);
   setTimeout(() => {
-    const pb = document.getElementById('preview-html-btn');
-    if (pb) pb.onclick = () => {
-      const hf = Object.entries(projectFiles).find(([n])=>n.endsWith('.html'));
-      if (!hf) { showToast('No HTML file','error'); return; }
-      const c = document.getElementById('preview-container');
-      const f = document.getElementById('preview-iframe');
-      if (!c||!f) return;
-      if (c.style.display==='block') { c.style.display='none'; pb.textContent='👁 Preview HTML'; return; }
-      f.src = URL.createObjectURL(new Blob([hf[1]],{type:'text/html'}));
-      c.style.display='block'; pb.textContent='✕ Close';
-    };
+    document.getElementById('preview-html-btn')?.addEventListener('click', () => {
+      const hf=Object.entries(projectFiles).find(([n])=>n.endsWith('.html')); if(!hf){showToast('No HTML','error');return;}
+      const ct=document.getElementById('preview-container'), f=document.getElementById('preview-iframe');
+      if(!ct||!f)return;
+      if(ct.style.display==='block'){ct.style.display='none';document.getElementById('preview-html-btn').textContent='👁 Preview HTML';return;}
+      f.src=URL.createObjectURL(new Blob([hf[1]],{type:'text/html'}));ct.style.display='block';document.getElementById('preview-html-btn').textContent='✕ Close';
+    });
   }, 100);
+}
+
+function downloadZip() {
+  const files = Object.entries(projectFiles).map(([n,c])=>({name:n,content:c}));
+  if (!files.length) return showToast('No files','error');
+  const enc = new TextEncoder();
+  const parts = []; let offset = 0; const centralParts = [];
+  for (const f of files) {
+    const data = enc.encode(f.content), name = enc.encode(f.name);
+    let crc = 0xffffffff;
+    for (let i=0;i<data.length;i++){crc ^=data[i];for(let j=0;j<8;j++)crc=(crc>>>1)^(crc&1?0xedb88320:0);}
+    crc = (crc^0xffffffff)>>>0;
+    const sz=data.length, nl=name.length;
+    const buf=new ArrayBuffer(30); const v=new DataView(buf);
+    v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint16(6,0,true);v.setUint16(8,0,true);
+    v.setUint16(10,0,true);v.setUint16(12,0,true);v.setUint32(14,crc,true);v.setUint32(18,sz,true);
+    v.setUint32(22,sz,true);v.setUint16(26,nl,true);v.setUint16(28,0,true);
+    parts.push(new Uint8Array(buf),name,data);
+    const cbuf=new ArrayBuffer(46); const cv=new DataView(cbuf);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);
+    cv.setUint16(8,0,true);cv.setUint16(10,0,true);cv.setUint16(12,0,true);cv.setUint16(14,0,true);
+    cv.setUint32(16,crc,true);cv.setUint32(20,sz,true);cv.setUint32(24,sz,true);
+    cv.setUint16(28,nl,true);cv.setUint16(30,0,true);cv.setUint16(32,0,true);
+    cv.setUint16(34,0,true);cv.setUint16(36,0,true);cv.setUint32(38,0,true);cv.setUint32(42,offset,true);
+    centralParts.push({h:new Uint8Array(cbuf),name}); offset += 30+nl+sz;
+  }
+  let cs=0; for(const c of centralParts){parts.push(c.h,c.name);cs+=46+c.name.length;}
+  const eocd=new ArrayBuffer(22); const ev=new DataView(eocd);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(4,0,true);ev.setUint16(6,0,true);
+  ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);
+  ev.setUint32(12,cs,true);ev.setUint32(16,offset,true);ev.setUint16(20,0,true);
+  parts.push(new Uint8Array(eocd));
+  const total=parts.reduce((s,p)=>s+p.length,0), merged=new Uint8Array(total);
+  let pos=0; for(const p of parts){merged.set(p,pos);pos+=p.length;}
+  const blob=new Blob([merged],{type:'application/zip'}), url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url;
+  const goalName=($('#goal-input').value||'project').substring(0,30).replace(/[^a-z0-9]/gi,'_').toLowerCase();
+  a.download=`${goalName}-files.zip`; document.body.appendChild(a); a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},3000);
+  showToast(`Downloaded ${goalName}-files.zip`);
 }
 
 /* ── Synthesis ── */
@@ -351,71 +296,31 @@ async function exportHTML() {
 $('#export-btn')?.addEventListener('click', exportResults);
 $('#export-html-btn')?.addEventListener('click', exportHTML);
 
-/* ── Play beep ── */
+/* ── Sound ── */
 function playBeep() {
-  try {
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.value = 880; gain.gain.value = 0.1;
-    osc.start(); osc.stop(ctx.currentTime+0.15);
-  } catch {}
+  try { const ctx=new (window.AudioContext||window.webkitAudioContext)(), osc=ctx.createOscillator(), gain=ctx.createGain(); osc.connect(gain); gain.connect(ctx.destination); osc.frequency.value=880; gain.gain.value=0.1; osc.start(); osc.stop(ctx.currentTime+0.15); } catch {}
 }
 
 /* ── Confetti ── */
 function fireConfetti() {
-  const container = document.createElement('div');
-  container.className = 'confetti-container';
-  const colors = ['#10a37f','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
-  for (let i=0;i<60;i++) {
-    const piece = document.createElement('div');
-    piece.className = 'confetti-piece';
-    piece.style.cssText = `left:${Math.random()*100}%;top:-${Math.random()*20}px;background:${colors[i%colors.length]};width:${6+Math.random()*8}px;height:${6+Math.random()*8}px;animation-delay:${Math.random()*0.8}s;animation-duration:${2+Math.random()*2}s;border-radius:${Math.random()>0.5?'50%':'2px'}`;
-    container.appendChild(piece);
-  }
-  document.body.appendChild(container);
-  setTimeout(()=>container.remove(), 4000);
+  const c=document.createElement('div'); c.className='confetti-container';
+  const colors=['#10a37f','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#ec4899'];
+  for(let i=0;i<60;i++){const p=document.createElement('div');p.className='confetti-piece';p.style.cssText=`left:${Math.random()*100}%;top:-${Math.random()*20}px;background:${colors[i%colors.length]};width:${6+Math.random()*8}px;height:${6+Math.random()*8}px;animation-delay:${Math.random()*0.8}s;animation-duration:${2+Math.random()*2}s;border-radius:${Math.random()>0.5?'50%':'2px'}`;c.appendChild(p);}
+  document.body.appendChild(c); setTimeout(()=>c.remove(),4000);
 }
 
-/* ── Pipeline flow visualization ── */
+/* ── Pipeline flow ── */
 function updatePipelineFlow(state) {
-  const nodes = ['flow-plan','flow-brain','flow-execute','flow-review','flow-synth'];
-  nodes.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) { el.classList.remove('active','done'); }
-  });
-  const stepMap = {
-    'login-check':'flow-plan', 'planning':'flow-plan', 'confirm-tasks':'flow-plan',
-    'running':'flow-execute', 'brain-writing':'flow-brain', 'brain-executing':'flow-execute',
-    'brain-reviewing':'flow-review', 'synthesis':'flow-synth',
-    'done':'flow-synth', 'error':'flow-synth',
-  };
-  const active = stepMap[state.step];
-  if (active) {
-    const el = document.getElementById(active);
-    if (el) el.classList.add(state.step==='done'?'done':'active');
-    /* Highlight all earlier steps as done */
-    const idx = nodes.indexOf(active);
-    for (let i=0;i<idx;i++) {
-      const e = document.getElementById(nodes[i]);
-      if (e) e.classList.add('done');
-    }
-    /* Update brain label */
-    const bl = document.getElementById('flow-brain-label');
-    if (bl && state.brainPhase) {
-      const match = state.brainPhase.match(/(DeepSeek|ChatGPT|Gemini|Perplexity|HuggingFace)/);
-      if (match) bl.textContent = match[0];
-    }
-  }
+  const n=['flow-plan','flow-brain','flow-execute','flow-review','flow-synth'];
+  n.forEach(id=>{const e=document.getElementById(id);if(e)e.classList.remove('active','done');});
+  const m={'login-check':'flow-plan','planning':'flow-plan','confirm-tasks':'flow-plan','running':'flow-execute','brain-writing':'flow-brain','brain-executing':'flow-execute','brain-reviewing':'flow-review','synthesis':'flow-synth','done':'flow-synth','error':'flow-synth'};
+  const a=m[state.step]; if(a){const e=document.getElementById(a);if(e)e.classList.add(state.step==='done'?'done':'active');const i=n.indexOf(a);for(let j=0;j<i;j++){const e=document.getElementById(n[j]);if(e)e.classList.add('done');}}
+  const bl=document.getElementById('flow-brain-label'); if(bl&&state.brainPhase){const m=state.brainPhase.match(/(DeepSeek|ChatGPT|Gemini|Perplexity|HuggingFace)/);if(m)bl.textContent=m[0];}
 }
 
-/* ── Status & render ── */
+/* ── Status ── */
 function statusText(state) {
-  const m = {
-    'login-check':'Checking logins...', 'planning':'Planning tasks...', 'confirm-tasks':'Review and confirm',
-    'running':`Executing (${state.tasks?.filter(t=>t.status==='done').length||0}/${state.tasks?.length||0})`,
-    'synthesis':'Synthesizing...', 'done':'Complete!', 'error':`Error: ${state.error||''}`,
-  };
+  const m={'login-check':'Checking logins...','planning':'Planning tasks...','confirm-tasks':'Review and confirm','running':`Executing (${state.tasks?.filter(t=>t.status==='done').length||0}/${state.tasks?.length||0})`,'synthesis':'Synthesizing...','done':'Complete!','error':`Error: ${state.error||''}`};
   return m[state.step]||state.step||'Ready';
 }
 
@@ -424,27 +329,22 @@ function render(state) {
   const active = ['login-check','planning','confirm-tasks','running','synthesis'].includes(state.step);
   dot.className = `status-dot ${active?'working':state.step==='done'?'done':state.step==='error'?'error':''}`;
   $('#status-text').textContent = statusText(state);
-
-  /* Badge */
   const badge = $('#status-badge');
-  if (badge) { badge.textContent = statusText(state); badge.className = `pipeline-status-badge ${active?'running':state.step==='done'?'done':state.step==='error'?'error':''}`; }
+  if (badge) { badge.textContent=statusText(state); badge.className=`pipeline-status-badge ${active?'running':state.step==='done'?'done':state.step==='error'?'error':''}`; }
 
-  /* Pipeline display */
   const pd = $('#pipeline-display');
   const isRunning = ['running','brain-writing','brain-executing','brain-reviewing','synthesis'].includes(state.step);
   if (isRunning) {
     pd.classList.add('active');
     updatePipelineFlow(state);
-    const total = state.tasks?.length||0, done = state.tasks?.filter(t=>t.status==='done'||t.status==='error').length||0;
+    const total=state.tasks?.length||0, done=state.tasks?.filter(t=>t.status==='done'||t.status==='error').length||0;
     $('#pd-progress-text').textContent = `Task ${done} of ${total}`;
     $('#pd-progress-fill').style.width = total>0?`${(done/total)*100}%`:'0%';
     if (pipelineStartTime && done>0) {
-      const e = (Date.now()-pipelineStartTime)/1000, avg = e/done, r = Math.round(avg*(total-done));
+      const e=(Date.now()-pipelineStartTime)/1000, avg=e/done, r=Math.round(avg*(total-done));
       $('#pd-time').textContent = `${e>60?Math.round(e/60)+'m':Math.round(e)+'s'} · ~${r>60?Math.round(r/60)+'m':Math.round(r)+'s'} remaining`;
     }
-  } else {
-    pd.classList.remove('active');
-  }
+  } else { pd.classList.remove('active'); }
 
   renderTasks(state.tasks, state.step==='confirm-tasks');
   if (['running','brain-writing','brain-executing','brain-reviewing','synthesis','done'].includes(state.step)) syncFilesFromAI(state.agentOutputs);
@@ -462,19 +362,15 @@ function render(state) {
   } else { ee.textContent = ''; }
 
   if (['done','error','cancelled'].includes(state.step)) {
-    running = false;
+    running = false; _reconnectAttempts = 0;
     $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
     stopPoll();
-    if (Object.keys(projectFiles).length>0) {
-      renderFilePanel();
-      if (settings.autoscroll) setTimeout(()=>{const fp=document.getElementById('file-panel-output');if(fp)fp.scrollIntoView({behavior:'smooth',block:'center'});},300);
-    }
+    if (Object.keys(projectFiles).length>0) { renderFilePanel(); if(settings.autoscroll)setTimeout(()=>{const fp=document.getElementById('file-panel-output');if(fp)fp.scrollIntoView({behavior:'smooth',block:'center'});},300); }
     if (currentChatId && Object.keys(projectFiles).length>0) {
       getChat(currentChatId).then(chat => { if(chat){chat.projectFiles={...projectFiles};saveChat(chat);} });
     }
     if (state.step==='done') {
-      showToast('✅ Pipeline complete!');
-      fireConfetti();
+      showToast('✅ Pipeline complete!'); fireConfetti();
       if (settings.sound) playBeep();
       if (settings.notification) {
         if (Notification.permission==='granted') new Notification('The Orchestrator',{body:'✅ Pipeline completed!',icon:'../icons/icon128.png'});
@@ -484,49 +380,47 @@ function render(state) {
   }
 }
 
-/* ── Polling ── */
+/* ── Polling (1s interval) ── */
 async function fetchState() {
   try {
     const s = await chrome.runtime.sendMessage({action:'multiStatus'});
     if (s) {
+      _reconnectAttempts = 0;
       render(s);
       if (['running','brain-writing','brain-executing','brain-reviewing','synthesis'].includes(s.step))
         sessionStorage.setItem('pipelineState',JSON.stringify({step:s.step,projectFiles}));
+    } else if (running) {
+      /* State missing — try to reconnect */
+      _reconnectAttempts++;
+      if (_reconnectAttempts > 30) { /* 30 seconds without state */
+        showToast('⚠️ Lost connection to pipeline. Reload to restart.','error');
+        running=false; stopPoll();
+        $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
+      }
     }
-  } catch {}
+  } catch { if (running) _reconnectAttempts++; }
 }
-function startPoll() { stopPoll(); pollTimer=setInterval(fetchState, settings.pollMs||800); }
+function startPoll() { stopPoll(); pollTimer=setInterval(fetchState, settings.pollMs||1000); }
 function stopPoll() { if(pollTimer) clearInterval(pollTimer); }
 
 /* ── Templates ── */
 $('#template-select')?.addEventListener('change', e => { if(e.target.value){$('#goal-input').value=e.target.value;e.target.value='';} });
 
-/* ── Drag-and-drop & file upload ── */
+/* ── Files ── */
 const dropArea = document.getElementById('goal-input')?.parentElement;
 if (dropArea) {
-  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.style.opacity='0.7'; });
-  dropArea.addEventListener('dragleave', () => { dropArea.style.opacity='1'; });
-  dropArea.addEventListener('drop', async e => {
-    e.preventDefault(); dropArea.style.opacity='1';
-    for (const f of Array.from(e.dataTransfer.files)) {
-      const content = f.type.startsWith('text/')||/\.(js|html|css|json|md|txt)$/i.test(f.name) ? await f.text() : `[Binary: ${f.name} - ${f.size} bytes]`;
-      attachedFiles.push({ name: f.name, content });
-    }
-    $('#file-count').textContent = `${attachedFiles.length} file(s)`;
-    const g = $('#goal-input');
-    if (attachedFiles.length && !g.value.includes('Attached files:'))
-      g.value += `\n\nAttached files:\n${attachedFiles.map(f=>`--- ${f.name} ---\n${f.content.slice(0,1500)}`).join('\n')}`;
+  dropArea.addEventListener('dragover', e=>{e.preventDefault();dropArea.style.opacity='0.7';});
+  dropArea.addEventListener('dragleave', ()=>{dropArea.style.opacity='1';});
+  dropArea.addEventListener('drop', async e => { e.preventDefault();dropArea.style.opacity='1';
+    for(const f of Array.from(e.dataTransfer.files)){const c=f.type.startsWith('text/')||/\.(js|html|css|json|md|txt)$/i.test(f.name)?await f.text():`[Binary: ${f.name} - ${f.size} bytes]`;attachedFiles.push({name:f.name,content:c});}
+    $('#file-count').textContent=`${attachedFiles.length} file(s)`;
+    const g=$('#goal-input'); if(attachedFiles.length&&!g.value.includes('Attached files:'))g.value+=`\n\nAttached files:\n${attachedFiles.map(f=>`--- ${f.name} ---\n${f.content.slice(0,1500)}`).join('\n')}`;
   });
 }
 $('#file-upload')?.addEventListener('change', async e => {
-  for (const f of Array.from(e.target.files)) {
-    const content = f.type.startsWith('text/')||f.name.endsWith('.js')||f.name.endsWith('.html')||f.name.endsWith('.css')||f.name.endsWith('.json')||f.name.endsWith('.md')?await f.text():`[Binary: ${f.name} - ${f.size} bytes]`;
-    attachedFiles.push({name:f.name,content});
-  }
-  $('#file-count').textContent = `${attachedFiles.length} file(s)`;
-  const g=$('#goal-input');
-  if(attachedFiles.length&&!g.value.includes('Attached files:'))
-    g.value+=`\n\nAttached files:\n${attachedFiles.map(f=>`--- ${f.name} ---\n${f.content.slice(0,1500)}`).join('\n')}`;
+  for(const f of Array.from(e.target.files)){const c=f.type.startsWith('text/')||f.name.endsWith('.js')||f.name.endsWith('.html')||f.name.endsWith('.css')||f.name.endsWith('.json')||f.name.endsWith('.md')?await f.text():`[Binary: ${f.name} - ${f.size} bytes]`;attachedFiles.push({name:f.name,content:c});}
+  $('#file-count').textContent=`${attachedFiles.length} file(s)`;
+  const g=$('#goal-input'); if(attachedFiles.length&&!g.value.includes('Attached files:'))g.value+=`\n\nAttached files:\n${attachedFiles.map(f=>`--- ${f.name} ---\n${f.content.slice(0,1500)}`).join('\n')}`;
   e.target.value='';
 });
 
@@ -543,15 +437,8 @@ async function renderChatList(filter) {
     list.appendChild(d);
   });
   list.querySelectorAll('.chat-item').forEach(el => {
-    el.addEventListener('click', e => { if(!e.target.classList.contains('del-chat')) selectChat(el.dataset.id); });
-    el.querySelector('.del-chat')?.addEventListener('click', async e => {
-      e.stopPropagation();
-      if (e.detail > 1) return; // only single click
-      if (!confirm('Delete this chat?')) return;
-      await deleteChat(el.dataset.id);
-      if (currentChatId===el.dataset.id) newChat();
-      renderChatList(document.getElementById('chat-search')?.value);
-    });
+    el.addEventListener('click', e => { if(!e.target.classList.contains('del-chat'))selectChat(el.dataset.id); });
+    el.querySelector('.del-chat')?.addEventListener('click', async e => { e.stopPropagation(); if(!confirm('Delete this chat?'))return; await deleteChat(el.dataset.id); if(currentChatId===el.dataset.id)newChat(); renderChatList(document.getElementById('chat-search')?.value); });
   });
   if (si) si.oninput = () => renderChatList(si.value);
 }
@@ -565,7 +452,7 @@ async function selectChat(id) {
     renderTasks(chat.results.tasks);
     renderOutputs(chat.results.agentOutputs);
     renderSynthesis(chat.results.synthesis);
-    if (chat.projectFiles) { projectFiles = {...chat.projectFiles}; renderFilePanel(); }
+    if (chat.projectFiles) { projectFiles={...chat.projectFiles}; renderFilePanel(); }
   }
   if (chat.selectedAgents) highlightAgents(chat.selectedAgents);
   renderChatList();
@@ -574,11 +461,9 @@ function newChat() {
   currentChatId=null; selectedAgents=[]; projectFiles={};
   $('#goal-input').value=''; $('#status-text').textContent='Ready'; $('#status-dot').className='status-dot';
   ['tasks-section','outputs-section','synth-section'].forEach(s=>$(s)?.classList.add('hidden'));
-  const fp = document.getElementById('file-panel-output');
-  if (fp) fp.remove();
+  const fp=document.getElementById('file-panel-output'); if(fp)fp.remove();
   renderAgentCards(); renderChatList();
-  const badge = $('#status-badge');
-  if (badge) { badge.textContent='Pipeline ready'; badge.className='pipeline-status-badge'; }
+  const badge=$('#status-badge'); if(badge){badge.textContent='Pipeline ready';badge.className='pipeline-status-badge';}
 }
 $('#new-chat-btn')?.addEventListener('click', newChat);
 
@@ -587,7 +472,7 @@ $('#run-btn').addEventListener('click', async () => {
   if (running) return;
   const goal = $('#goal-input').value.trim();
   if (!goal) { showToast('Enter a goal first','error'); return; }
-  running = true; pipelineStartTime = Date.now();
+  running = true; _reconnectAttempts = 0; pipelineStartTime = Date.now();
   projectFiles = {};
   const oldFp = document.getElementById('file-panel-output'); if (oldFp) oldFp.remove();
   attachedFiles = [];
@@ -603,64 +488,55 @@ $('#run-btn').addEventListener('click', async () => {
   await renderChatList();
   allActiveAgents().forEach(a => setAgentStatus(a.id,'idle'));
 
-  chrome.runtime.sendMessage({
-    action:'runMulti', goal,
+  chrome.runtime.sendMessage({ action:'runMulti', goal,
     selectedAgents: selectedAgents.length ? selectedAgents : null,
     chatId: currentChatId, projectFiles,
   });
 });
 $('#stop-btn').addEventListener('click', () => {
   chrome.runtime.sendMessage({action:'stopMulti'});
-  running=false; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
+  running=false; _reconnectAttempts=0; $('#run-btn').classList.remove('hidden'); $('#stop-btn').classList.add('hidden');
   stopPoll(); $('#status-text').textContent='Cancelled'; $('#status-dot').className='status-dot error';
   showToast('Cancelled','error');
 });
 $('#confirm-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({action:'confirmTasks'}));
 $('#cancel-tasks')?.addEventListener('click', () => chrome.runtime.sendMessage({action:'rejectTasks'}));
 
-/* ── Retry & Skip ── */
 document.addEventListener('click', e => {
-  const r = e.target.closest('.retry-task'), s = e.target.closest('.skip-task');
-  if (r) { chrome.runtime.sendMessage({action:'retryTask',taskIndex:parseInt(r.dataset.index)}); showToast('Retrying...'); }
-  if (s) { chrome.runtime.sendMessage({action:'skipTask',taskIndex:parseInt(s.dataset.index)}); showToast('Skipping...'); }
+  const r=e.target.closest('.retry-task'), s=e.target.closest('.skip-task');
+  if (r){chrome.runtime.sendMessage({action:'retryTask',taskIndex:parseInt(r.dataset.index)});showToast('Retrying...');}
+  if (s){chrome.runtime.sendMessage({action:'skipTask',taskIndex:parseInt(s.dataset.index)});showToast('Skipping...');}
 });
 
-/* ── Keyboard shortcuts ── */
+/* ── Shortcuts ── */
 document.addEventListener('keydown', e => {
-  if ((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!running) $('#run-btn')?.click();
-  if (e.key==='Escape'&&running) $('#stop-btn')?.click();
-  if (e.key==='?'&&!e.ctrlKey&&!e.metaKey) { e.preventDefault(); toggleShortcuts(); }
-  if (e.key==='n'&&(e.ctrlKey||e.metaKey)) { e.preventDefault(); newChat(); }
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!running) $('#run-btn')?.click();
+  if(e.key==='Escape'&&running) $('#stop-btn')?.click();
+  if(e.key==='?'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();toggleShortcuts();}
+  if(e.key==='n'&&(e.ctrlKey||e.metaKey)){e.preventDefault();newChat();}
 });
 
-/* ── Shortcuts modal ── */
 let shortcutsOpen = false;
 function toggleShortcuts() {
-  shortcutsOpen = !shortcutsOpen;
-  const existing = document.querySelector('.shortcuts-modal');
-  if (existing) { existing.remove(); shortcutsOpen=false; return; }
-  if (!shortcutsOpen) return;
-  const m = document.createElement('div');
-  m.className = 'shortcuts-modal';
-  m.innerHTML = `<div class="shortcuts-content">
-    <h2>⌨️ Keyboard Shortcuts <button id="close-shortcuts" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text-secondary)">✕</button></h2>
-    ${[['Ctrl+Enter','Run pipeline'],['Esc','Stop pipeline'],['Ctrl+N','New chat'],['?','Toggle shortcuts'],['G','Open settings']].map(([k,d])=>`<div class="shortcut-row"><span class="shortcut-key">${k}</span><span class="shortcut-desc">${d}</span></div>`).join('')}
-  </div>`;
+  shortcutsOpen=!shortcutsOpen;
+  const ex=document.querySelector('.shortcuts-modal');
+  if(ex){ex.remove();shortcutsOpen=false;return;}
+  if(!shortcutsOpen)return;
+  const m=document.createElement('div'); m.className='shortcuts-modal';
+  m.innerHTML=`<div class="shortcuts-content"><h2>⌨️ Shortcuts <button id="close-shortcuts" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text-secondary)">✕</button></h2>
+    ${[['Ctrl+Enter','Run'],['Esc','Stop'],['Ctrl+N','New chat'],['?','Shortcuts'],['G','Settings']].map(([k,d])=>`<div class="shortcut-row"><span class="shortcut-key">${k}</span><span class="shortcut-desc">${d}</span></div>`).join('')}</div>`;
   document.body.appendChild(m);
-  m.querySelector('#close-shortcuts')?.addEventListener('click', ()=>{m.remove(); shortcutsOpen=false;});
-  m.addEventListener('click', e => { if(e.target===m){m.remove(); shortcutsOpen=false;} });
+  m.querySelector('#close-shortcuts')?.addEventListener('click',()=>{m.remove();shortcutsOpen=false;});
+  m.addEventListener('click',e=>{if(e.target===m){m.remove();shortcutsOpen=false;}});
 }
 $('#shortcuts-btn')?.addEventListener('click', toggleShortcuts);
 
 /* ── Settings ── */
 let settingsOpen = false;
 function toggleSettings() {
-  settingsOpen = !settingsOpen;
-  const panel = document.getElementById('settings-panel');
-  const overlay = document.getElementById('settings-overlay');
-  if (!panel || !overlay) return;
-  panel.classList.toggle('open', settingsOpen);
-  overlay.classList.toggle('hidden', !settingsOpen);
+  settingsOpen=!settingsOpen;
+  document.getElementById('settings-panel')?.classList.toggle('open',settingsOpen);
+  document.getElementById('settings-overlay')?.classList.toggle('hidden',!settingsOpen);
 }
 $('#settings-btn')?.addEventListener('click', toggleSettings);
 $('#settings-close')?.addEventListener('click', toggleSettings);
@@ -668,41 +544,22 @@ $('#settings-overlay')?.addEventListener('click', toggleSettings);
 
 function initSettings() {
   loadSettings(); applySettingsUI();
-  /* Wire up setting controls */
-  const bindToggle = (id, key) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('click', () => { settings[key] = !settings[key]; el.classList.toggle('on'); saveSettings(); });
-  };
-  bindToggle('setting-sound', 'sound');
-  bindToggle('setting-notification', 'notification');
-  bindToggle('setting-autoscroll', 'autoscroll');
-  ['retries','max-agents','poll-ms','anim-speed'].forEach(k => {
-    const el = document.getElementById(`setting-${k}`);
-    if (!el) return;
-    el.addEventListener('change', () => {
-      const key = k.replace('-','');
-      settings[key] = el.type==='checkbox'?el.checked:parseInt(el.value);
-      saveSettings();
-    });
-  });
-  $('#settings-reset')?.addEventListener('click', () => {
-    if (!confirm('Reset settings to defaults?')) return;
-    settings = {...DEFAULT_SETTINGS}; saveSettings(); applySettingsUI();
-    showToast('Settings reset');
-  });
+  const bindToggle=(id,key)=>{const el=document.getElementById(id);if(!el)return;el.addEventListener('click',()=>{settings[key]=!settings[key];el.classList.toggle('on');saveSettings();});};
+  bindToggle('setting-sound','sound'); bindToggle('setting-notification','notification'); bindToggle('setting-autoscroll','autoscroll');
+  ['retries','max-agents','poll-ms','anim-speed'].forEach(k=>{const el=document.getElementById(`setting-${k}`);if(!el)return;el.addEventListener('change',()=>{settings[k.replace('-','')]=parseInt(el.value);saveSettings();});});
+  $('#settings-reset')?.addEventListener('click',()=>{if(!confirm('Reset settings?'))return;settings={...DEFAULT_SETTINGS};saveSettings();applySettingsUI();showToast('Reset');});
 }
 
 /* ── Utilities ── */
-function esc(s) { return String(s).replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
-function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+function esc(s){return String(s).replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;');}
+function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');}
 function highlightSyntax(code) {
-  let h = esc(code);
-  h = h.replace(/(&lt;\/?[a-zA-Z][^&]*&gt;)/g,'<span style="color:#e879f9">$1</span>');
-  h = h.replace(/(\/\*[\s\S]*?\*\/|--[\s\S]*?$)/gm,'<span style="color:#6b7280">$1</span>');
-  h = h.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span style="color:#f59e0b">$1</span>');
-  h = h.replace(/\b(function|const|let|var|if|else|return|class|import|export|default|async|await|for|while|do|switch|case|break|continue|new|this|typeof|instanceof)\b/g,'<span style="color:#3b82f6">$1</span>');
-  h = h.replace(/\b(\d+\.?\d*)(px|rem|em|vh|vw|%|s|ms)?\b/g,'<span style="color:#22c55e">$1$2</span>');
+  let h=esc(code);
+  h=h.replace(/(&lt;\/?[a-zA-Z][^&]*&gt;)/g,'<span style="color:#e879f9">$1</span>');
+  h=h.replace(/(\/\*[\s\S]*?\*\/|--[\s\S]*?$)/gm,'<span style="color:#6b7280">$1</span>');
+  h=h.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,'<span style="color:#f59e0b">$1</span>');
+  h=h.replace(/\b(function|const|let|var|if|else|return|class|import|export|default|async|await|for|while|do|switch|case|break|continue|new|this|typeof|instanceof)\b/g,'<span style="color:#3b82f6">$1</span>');
+  h=h.replace(/\b(\d+\.?\d*)(px|rem|em|vh|vw|%|s|ms)?\b/g,'<span style="color:#22c55e">$1$2</span>');
   return h;
 }
 
@@ -731,11 +588,9 @@ function highlightSyntax(code) {
     } catch {}
   }
 
-  /* Auto-save goal */
   try { const g = localStorage.getItem('lastGoal'); if (g&&!$('#goal-input').value) $('#goal-input').value=g; } catch {}
   $('#goal-input')?.addEventListener('input', () => { try { localStorage.setItem('lastGoal',$('#goal-input').value); } catch {} });
 
-  /* Loading animation */
   document.body.style.opacity='0';
   requestAnimationFrame(() => { document.body.style.transition='opacity 0.3s'; document.body.style.opacity='1'; });
 

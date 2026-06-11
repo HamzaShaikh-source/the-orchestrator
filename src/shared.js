@@ -1,4 +1,4 @@
-/* shared.js - Core utilities, constants, login check, tab management */
+/* shared.js v2.1 — Production core: hidden tabs, 1s poll, output limits, lifecycle */
 
 /* ── Constants ── */
 const DEEPSEEK_URL = 'https://chat.deepseek.com/';
@@ -7,17 +7,22 @@ const GEMINI_URL = 'https://gemini.google.com/';
 const PERPLEXITY_URL = 'https://www.perplexity.ai/';
 const HUGGINGFACE_URL = 'https://huggingface.co/chat/';
 
+const MAX_OUTPUT_KB = 48;  /* Keep outputs under 50KB for storage limits */
+const POLL_INTERVAL_MS = 1000; /* Exactly 1 second as requested */
+const KEEPALIVE_INTERVAL_MS = 20000; /* Keep service worker alive */
+
 /* ── Pipeline globals ── */
 let cancelled = false;
 let running = false;
 let pipelineGen = 0;
 let loginRetryRequested = false;
+let _hiddenWindowId = null; /* Hidden window for background tab execution */
 
 class CancelError extends Error {
   constructor() { super('Cancelled'); this.name = 'CancelError'; }
 }
 
-/* ── Multi-agent state ── */
+/* ── Multi-agent state (with size limits) ── */
 let multiRunning = false;
 let multiCancelled = false;
 const DEFAULT_MULTI_STATE = {
@@ -28,9 +33,29 @@ const DEFAULT_MULTI_STATE = {
   sharedContext: { goal: '', files: [], agentSummaries: {} },
 };
 
+function truncateForStorage(obj, maxKB = MAX_OUTPUT_KB) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const str = JSON.stringify(obj);
+  const maxBytes = maxKB * 1024;
+  if (str.length <= maxBytes) return obj;
+  /* Truncate agent outputs and synthesis */
+  const copy = JSON.parse(JSON.stringify(obj));
+  if (copy.agentOutputs) {
+    for (const [k, v] of Object.entries(copy.agentOutputs)) {
+      if (v.output && v.output.length > maxBytes / 4) {
+        v.output = v.output.slice(0, maxBytes / 4) + '\n\n[truncated]';
+      }
+    }
+  }
+  if (copy.synthesis && copy.synthesis.length > maxBytes / 2) {
+    copy.synthesis = copy.synthesis.slice(0, maxBytes / 2) + '\n\n[truncated]';
+  }
+  return copy;
+}
+
 function setMultiState(partial) {
   return chrome.storage.session.get('multiState').then(({ multiState }) => {
-    const next = { ...(multiState || DEFAULT_MULTI_STATE), ...partial };
+    const next = truncateForStorage({ ...(multiState || DEFAULT_MULTI_STATE), ...partial });
     return chrome.storage.session.set({ multiState: next });
   });
 }
@@ -40,26 +65,88 @@ async function getMultiState() {
   return multiState || { ...DEFAULT_MULTI_STATE };
 }
 
-/* ── Agent Conversation URL Tracking ── */
+/* ── Hidden background tab execution ── */
 
-function getAgentConv(agentId) {
-  return chrome.storage.local.get('agentConvs').then(({ agentConvs }) => {
-    return (agentConvs || {})[agentId] || '';
+async function ensureHiddenWindow() {
+  if (_hiddenWindowId) {
+    try {
+      const win = await chrome.windows.get(_hiddenWindowId);
+      if (win) { /* minimize it so it stays out of the way */
+        if (!win.alwaysOnTop) chrome.windows.update(_hiddenWindowId, { state: 'minimized' });
+      }
+      return _hiddenWindowId;
+    } catch { _hiddenWindowId = null; }
+  }
+  /* Create a dedicated hidden window */
+  try {
+    const win = await chrome.windows.create({
+      url: 'about:blank',
+      state: 'minimized',
+      type: 'normal',
+      focused: false,
+    });
+    _hiddenWindowId = win.id;
+    return win.id;
+  } catch {
+    /* Fallback: just open in background tabs */
+    return null;
+  }
+}
+
+async function openHiddenTab(url) {
+  let target;
+  try { target = new URL(url); } catch { throw new Error(`Invalid URL: ${url}`); }
+
+  const hiddenWin = await ensureHiddenWindow();
+
+  if (hiddenWin) {
+    /* Open in the hidden minimized window — user never sees it */
+    return new Promise((resolve, reject) => {
+      chrome.tabs.create({ url: target.href, active: false, windowId: hiddenWin }, (tab) => {
+        if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+        if (!tab || typeof tab.id !== 'number') { reject(new Error('Could not open hidden tab')); return; }
+        resolve(tab);
+      });
+    });
+  }
+
+  /* Fallback: background tab in current window */
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create({ url: target.href, active: false }, (tab) => {
+      if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
+      if (!tab || typeof tab.id !== 'number') { reject(new Error('Could not open tab')); return; }
+      resolve(tab);
+    });
   });
 }
 
+/* ── Close hidden window on cleanup ── */
+async function cleanupHiddenWindow() {
+  if (_hiddenWindowId) {
+    try {
+      const tabs = await chrome.tabs.query({ windowId: _hiddenWindowId });
+      for (const t of tabs) {
+        if (t.id && !t.url?.startsWith('about:blank')) await chrome.tabs.remove(t.id).catch(() => {});
+      }
+    } catch { /* window may already be gone */ }
+    _hiddenWindowId = null;
+  }
+}
+
+/* ── Agent Conversation URL Tracking ── */
+function getAgentConv(agentId) {
+  return chrome.storage.local.get('agentConvs').then(({ agentConvs }) => (agentConvs || {})[agentId] || '');
+}
 function setAgentConv(agentId, url) {
   return chrome.storage.local.get('agentConvs').then(({ agentConvs }) => {
     const next = { ...(agentConvs || {}), [agentId]: url };
     return chrome.storage.local.set({ agentConvs: next });
   });
 }
-
 function isConversationUrl(agentId, url) {
   if (!url) return false;
   const agent = getAgent(agentId);
-  if (!agent || !agent.conversationPattern) return false;
-  return url.includes(agent.conversationPattern);
+  return agent && agent.conversationPattern ? url.includes(agent.conversationPattern) : false;
 }
 
 async function findExistingTab(convUrl) {
@@ -77,13 +164,13 @@ async function getOrCreateTab(agent, preferredUrl) {
   if (!agent.conversationPattern) {
     const existing = await findExistingTab(agent.url);
     if (existing) return existing;
-    return openTab(agent.url);
+    return openHiddenTab(agent.url);
   }
   const savedUrl = preferredUrl || await getAgentConv(agent.id);
   const targetUrl = savedUrl || agent.url;
   const existing = await findExistingTab(targetUrl);
   if (existing) return existing;
-  return openTab(targetUrl);
+  return openHiddenTab(targetUrl);
 }
 
 async function updateAgentConv(agentId, tabId) {
@@ -97,27 +184,13 @@ async function updateAgentConv(agentId, tabId) {
 
 /* ── Tab utilities ── */
 
-function openTab(url) {
-  return new Promise((resolve, reject) => {
-    let target;
-    try { target = new URL(url); } catch {
-      reject(new Error(`Invalid URL: ${url}`));
-      return;
-    }
-    chrome.tabs.create({ url: target.href, active: false }, (tab) => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) { reject(new Error(`Could not open tab: ${lastError.message}`)); return; }
-      if (!tab || typeof tab.id !== 'number') { reject(new Error(`Could not open tab for ${url}`)); return; }
-      resolve(tab);
-    });
-  });
-}
+function openTab(url) { return openHiddenTab(url); } /* Legacy alias */
 
 function waitTab(tabId, timeout = 30000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(fn);
-      reject(new Error('Tab did not finish loading in time'));
+      reject(new Error('Tab load timeout'));
     }, timeout);
     function fn(id, info) {
       if (id === tabId && info.status === 'complete') {
@@ -149,7 +222,7 @@ function getTabUrl(tabId) {
 
 function send(tabId, msg) {
   return chrome.tabs.sendMessage(tabId, msg).catch((err) => ({
-    error: err?.message || 'Could not reach content script. Refresh the target tab and try again.',
+    error: err?.message || 'Content script unreachable. Refresh the agent tab.',
   }));
 }
 
@@ -157,58 +230,68 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-const PLACEHOLDER_RE = /^(thinking|searching|generating|preparing|loading|analyzing)/i;
+const PLACEHOLDER_RE = /^(thinking|searching|generating|preparing|loading|analyzing|researching)/i;
 
+/* ── Smarter 1s-interval poll with adaptive stability ── */
 async function poll(tabId, prompt, maxSec = 180) {
   let last = '';
   let stable = 0;
   let maxLen = 0;
+  let lastGrowthRate = 0;
   let readFailures = 0;
-  const CANCELLED = () => cancelled || multiCancelled;
+  const isCancelled = () => cancelled || multiCancelled;
+
   for (let i = 0; i < maxSec; i++) {
-    if (CANCELLED()) throw new CancelError();
+    if (isCancelled()) throw new CancelError();
 
     const r = await send(tabId, { action: 'read' });
     if (r?.error) {
       readFailures++;
-      if (readFailures >= 8) throw new Error(r.error);
-      await sleep(1000);
+      if (readFailures >= 10) {
+        /* Try deep scan before giving up */
+        const deep = await send(tabId, { action: 'readDeep' });
+        if (deep?.text && deep.text.length > 50) return deep.text;
+        throw new Error(r.error);
+      }
+      await sleep(POLL_INTERVAL_MS);
       continue;
     }
     readFailures = 0;
     const cur = (r?.text || '').trim();
 
     if (!cur || PLACEHOLDER_RE.test(cur) || isEcho(cur, prompt)) {
-      stable = 0; last = ''; await sleep(1000); continue;
+      stable = 0; last = ''; await sleep(POLL_INTERVAL_MS); continue;
     }
 
-    /* Text is growing — still streaming, don't count as stable */
     if (cur.length > maxLen) {
+      /* Still growing — text is streaming */
+      const growth = cur.length - maxLen;
+      lastGrowthRate = growth;
       maxLen = cur.length;
       stable = 0;
       last = cur;
-    } else if (cur === last) {
+    } else if (cur === last && cur.length > 10) {
       stable++;
-      /* Require longer stability for longer texts */
-      const required = cur.length > 2000 ? 20 : cur.length > 500 ? 15 : 10;
-      if (stable >= required && cur.length > 10) return cur;
+      /* Adaptive stability: longer texts need more confirmation */
+      const required = Math.min(20, Math.max(5, Math.floor(cur.length / 200)));
+      if (stable >= required) return cur;
     } else {
       stable = 0;
       last = cur;
     }
-    await sleep(1000);
+
+    await sleep(POLL_INTERVAL_MS);
   }
+
   if (last && !PLACEHOLDER_RE.test(last) && last.length > 10 && !isEcho(last, prompt)) return last;
-  /* Last resort: try a deep scan for any text that appeared */
   const deepScan = await send(tabId, { action: 'readDeep' });
   if (deepScan?.text && deepScan.text.length > 20) return deepScan.text;
   return '\u26a0\ufe0f Timeout';
 }
 
-function isEcho(text, prompt) {
-  return false;
-}
+function isEcho(text, prompt) { return false; }
 
+/* ── Tab life-cycle management ── */
 function tabAlive(tabId) {
   return chrome.tabs.get(tabId).then(
     (tab) => tab && !tab.discarded,
@@ -216,17 +299,23 @@ function tabAlive(tabId) {
   );
 }
 
+async function tabAliveWithRetry(tabId, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    if (await tabAlive(tabId)) return true;
+    await sleep(1500);
+  }
+  return false;
+}
+
 function isDeepseekConversationUrl(url) {
   return Boolean(url && url.includes('chat.deepseek.com') && url.includes('/chat/s/'));
 }
-
 function isChatgptConversationUrl(url) {
   return Boolean(url && url.includes('chatgpt.com') && url.includes('/c/'));
 }
 
 /* ── Content script readiness ── */
-
-async function waitForContentScript(tabId, maxSec = 15) {
+async function waitForContentScript(tabId, maxSec = 20) {
   for (let i = 0; i < maxSec; i++) {
     const r = await send(tabId, { action: 'ping' });
     if (!r?.error) return true;
@@ -235,8 +324,19 @@ async function waitForContentScript(tabId, maxSec = 15) {
   return false;
 }
 
-/* ── Login check ── */
+/* ── Keepalive ── */
+let _keepaliveTimer = null;
+function startKeepalive() {
+  stopKeepalive();
+  _keepaliveTimer = setInterval(() => {
+    chrome.storage.local.get('_keepalive').catch(() => {});
+  }, KEEPALIVE_INTERVAL_MS);
+}
+function stopKeepalive() {
+  if (_keepaliveTimer) { clearInterval(_keepaliveTimer); _keepaliveTimer = null; }
+}
 
+/* ── Login check ── */
 const AGENT_LOGIN_URLS = {
   deepseek: DEEPSEEK_URL,
   chatgpt: CHATGPT_URL,
@@ -251,7 +351,7 @@ async function checkAgentLogin(agentId) {
 
   let tab;
   try {
-    tab = await openTab(baseUrl);
+    tab = await openHiddenTab(baseUrl);
     await waitTab(tab.id);
     await sleep(3000);
     const r = await send(tab.id, { action: 'checkLogin' });
@@ -266,10 +366,7 @@ async function runLoginCheck(selectedAgents) {
   const results = {};
   for (const id of selectedAgents) {
     const agent = getAgent(id);
-    if (!agent) {
-      results[id] = { status: 'error', error: 'Unknown agent' };
-      continue;
-    }
+    if (!agent) { results[id] = { status: 'error', error: 'Unknown agent' }; continue; }
 
     let done = false;
     while (!done) {
@@ -283,7 +380,6 @@ async function runLoginCheck(selectedAgents) {
 
       const check = await checkAgentLogin(id);
       results[id] = { status: check.loggedIn ? 'done' : 'not-logged-in', tabId: check.tabId, agentName: agent.name };
-
       if (check.loggedIn) { done = true; continue; }
 
       const start = Date.now();
@@ -301,10 +397,10 @@ async function runLoginCheck(selectedAgents) {
 
         const alive = check.tabId ? await tabAlive(check.tabId) : false;
         if (!alive) {
-          results[id] = { status: 'cancelled', error: 'Tab closed', agentName: agent.name };
+          results[id] = { status: 'tab-closed', error: 'Tab closed', agentName: agent.name };
           await setMultiState({
             step: 'login-check',
-            loginCheck: { status: 'cancelled', currentAgent: id, agentName: agent.name, agents: results, error: `Login tab for ${agent.name} was closed. Click Retry to try again.` },
+            loginCheck: { status: 'cancelled', currentAgent: id, agentName: agent.name, agents: results, error: `Login tab for ${agent.name} was closed.` },
           });
           const retryStart = Date.now();
           while (Date.now() - retryStart < TIMEOUT) {
@@ -337,7 +433,6 @@ async function runLoginCheck(selectedAgents) {
       }
     }
   }
-
   await setMultiState({
     step: 'login-check',
     loginCheck: { status: 'done', currentAgent: '', agentName: '', agents: results, error: null },
