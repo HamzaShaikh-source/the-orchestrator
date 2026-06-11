@@ -65,31 +65,38 @@ async function getMultiState() {
   return multiState || { ...DEFAULT_MULTI_STATE };
 }
 
-/* ── Hidden background tab execution ── */
+/* ── Off-screen background tab execution ──
+ *
+ * Chrome does NOT fully render tabs in minimized windows — content scripts
+ * won't inject, DOM events won't fire, and AI sites won't initialize.
+ *
+ * Solution: Create a tiny off-screen popup window positioned at (-2000, -2000).
+ * Chrome fully renders ALL popup windows, so content scripts inject properly
+ * and the page loads completely — but the user never sees it.
+ */
 
-async function ensureHiddenWindow() {
-  if (_hiddenWindowId) {
+let _offScreenWindowId = null;
+
+async function ensureOffScreenWindow() {
+  if (_offScreenWindowId) {
     try {
-      const win = await chrome.windows.get(_hiddenWindowId);
-      if (win) { /* minimize it so it stays out of the way */
-        if (!win.alwaysOnTop) chrome.windows.update(_hiddenWindowId, { state: 'minimized' });
-      }
-      return _hiddenWindowId;
-    } catch { _hiddenWindowId = null; }
+      const win = await chrome.windows.get(_offScreenWindowId);
+      if (win) return _offScreenWindowId;
+    } catch { _offScreenWindowId = null; }
   }
-  /* Create a dedicated hidden window */
   try {
     const win = await chrome.windows.create({
       url: 'about:blank',
-      state: 'minimized',
-      type: 'normal',
+      left: -2000, top: -2000,    /* Off-screen — user can't see it */
+      width: 400, height: 300,    /* Small but valid size */
+      type: 'popup',              /* Popup renders fully even when off-screen */
       focused: false,
+      state: 'normal',
     });
-    _hiddenWindowId = win.id;
+    _offScreenWindowId = win.id;
     return win.id;
   } catch {
-    /* Fallback: just open in background tabs */
-    return null;
+    return null; /* Fallback: regular background tabs */
   }
 }
 
@@ -97,39 +104,49 @@ async function openHiddenTab(url) {
   let target;
   try { target = new URL(url); } catch { throw new Error(`Invalid URL: ${url}`); }
 
-  const hiddenWin = await ensureHiddenWindow();
+  const hiddenWin = await ensureOffScreenWindow();
 
   if (hiddenWin) {
-    /* Open in the hidden minimized window — user never sees it */
+    /* Open with active:true so the tab fully loads + injects content script.
+     * In an off-screen popup, the user never sees this activation. */
     return new Promise((resolve, reject) => {
-      chrome.tabs.create({ url: target.href, active: false, windowId: hiddenWin }, (tab) => {
+      chrome.tabs.create({ url: target.href, active: true, windowId: hiddenWin }, (tab) => {
         if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
-        if (!tab || typeof tab.id !== 'number') { reject(new Error('Could not open hidden tab')); return; }
+        if (!tab || typeof tab.id !== 'number') { reject(new Error('Could not create hidden tab')); return; }
         resolve(tab);
       });
     });
   }
 
-  /* Fallback: background tab in current window */
+  /* Fallback: background tab in current window (still works, just visible) */
   return new Promise((resolve, reject) => {
     chrome.tabs.create({ url: target.href, active: false }, (tab) => {
       if (chrome.runtime.lastError) { reject(new Error(chrome.runtime.lastError.message)); return; }
-      if (!tab || typeof tab.id !== 'number') { reject(new Error('Could not open tab')); return; }
+      if (!tab || typeof tab.id !== 'number') { reject(new Error('Could not create tab')); return; }
       resolve(tab);
     });
   });
 }
 
-/* ── Close hidden window on cleanup ── */
+/* ── Activate a tab briefly so its content script stays alive ── */
+async function pokeTab(tabId) {
+  try {
+    await chrome.tabs.update(tabId, { active: true });
+    await sleep(200);
+  } catch { /* tab may be gone */ }
+}
+
+/* ── Close off-screen window on cleanup ── */
 async function cleanupHiddenWindow() {
-  if (_hiddenWindowId) {
+  if (_offScreenWindowId) {
     try {
-      const tabs = await chrome.tabs.query({ windowId: _hiddenWindowId });
+      const tabs = await chrome.tabs.query({ windowId: _offScreenWindowId });
       for (const t of tabs) {
         if (t.id && !t.url?.startsWith('about:blank')) await chrome.tabs.remove(t.id).catch(() => {});
       }
+      await chrome.windows.remove(_offScreenWindowId).catch(() => {});
     } catch { /* window may already be gone */ }
-    _hiddenWindowId = null;
+    _offScreenWindowId = null;
   }
 }
 

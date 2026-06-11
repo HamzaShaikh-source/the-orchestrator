@@ -68,7 +68,11 @@ async function aiSelectAgents(goal, usedTabs) {
 async function ensureTab(agent, usedTabs, manualUrls, taskKey) {
   const key = taskKey || agent.id;
   let tab = usedTabs[key];
-  if (tab && (await tabAliveWithRetry(tab.id))) return tab;
+  if (tab && (await tabAliveWithRetry(tab.id))) {
+    /* Brief activation to ensure content script is responsive */
+    await pokeTab(tab.id);
+    return tab;
+  }
   tab = await getOrCreateTab(agent, manualUrls[agent.id]);
   usedTabs[key] = tab;
   return tab;
@@ -116,6 +120,12 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       await waitTab(tab.id);
       await sleep(3000);
 
+      /* Brief activation ensures the off-screen popup tab fully renders
+       * and its content script is responsive. Chrome needs a moment of
+       * active focus for JS-heavy sites like ChatGPT/Gemini. */
+      await pokeTab(tab.id);
+      await sleep(500);
+
       if (!(await waitForContentScript(tab.id))) {
         throw new Error('content_script_not_detected');
       }
@@ -136,10 +146,14 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       console.log(`[Brain] ${agent.name} executing: ${task.description.slice(0, 50)}`);
       await setMultiState({ step: 'brain-executing', brainPhase: `${agent.name} executing task...`, agentOutputs: { ...agentOutputs } });
 
+      /* Activate tab right before interaction — ensures off-screen tab
+       * is in a responsive state for DOM manipulation. */
+      await pokeTab(tab.id);
       let r = await send(tab.id, { action: 'inject', text: instruction });
       if (r?.error) throw new Error(`inject: ${r.error}`);
       await sleep(1500);
 
+      await pokeTab(tab.id);
       r = await send(tab.id, { action: 'submit' });
       if (r?.error) throw new Error(`submit: ${r.error}`);
 
@@ -362,6 +376,7 @@ Generate ALL files needed. Make them complete and production-ready.`;
 
       const synthTab = usedTabs[BRAIN_ID];
       if (synthTab && (await tabAlive(synthTab.id)) && (await waitForContentScript(synthTab.id))) {
+        await pokeTab(synthTab.id);
         let r = await send(synthTab.id, { action: 'inject', text: synthPrompt });
         if (!r?.error) {
           await sleep(1000);
