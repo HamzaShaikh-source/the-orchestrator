@@ -707,7 +707,8 @@ function autoSelectAgents(goal) {
   const agents = allActiveAgents();
   const lower = goal.toLowerCase();
   const scored = agents.map(a => {
-    const words = (a.strengths ? (Array.isArray(a.strengths) ? a.strengths.join(' ') : a.strengths) : a.name || '').toLowerCase().split(/\s+/);
+    const strengthsStr = a.strengths ? (Array.isArray(a.strengths) ? a.strengths.join(' ') : typeof a.strengths === 'object' ? Object.keys(a.strengths).join(' ') : String(a.strengths)) : '';
+    const words = (strengthsStr || a.name || '').toLowerCase().split(/\s+/);
     const score = words.filter(w => w.length > 2 && lower.includes(w)).length;
     return { agent: a, score };
   }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
@@ -954,12 +955,10 @@ function initSettings() {
     btn.textContent = '⏳ Checking…'; btn.disabled = true;
     try {
       const r = await chrome.runtime.sendMessage({ action: 'performAutoUpdate' });
-      if (r?.status === 'reloading') {
-        showToast('🔄 Update downloaded, reloading…', 'success');
+      if (r?.status === 'downloaded' || r?.status === 'updated') {
+        showToast(`✅ Update downloaded — extract ZIP over extension folder (${r.sha?.slice(0,8)})`, 'success');
       } else if (r?.status === 'up_to_date') {
         showToast('✓ Already up to date', 'success');
-      } else if (r?.status === 'updated') {
-        showToast(`✅ Updated (${r.sha?.slice(0,8)})`, 'success');
       } else if (r?.error) {
         showToast(`❌ ${r.error}`, 'error');
       }
@@ -1134,7 +1133,7 @@ async function refreshUpdateStatus() {
     const nowRow = document.getElementById('update-now-row');
     if (statusEl) {
       if (r?.running) statusEl.textContent = '🔄 Auto-updating…';
-      else statusEl.textContent = r?.applied ? '✅ Updated' : (r?.pending ? '⬇ Update pending — will apply on reload' : '🟢 Active (hourly)');
+      else statusEl.textContent = r?.applied ? '✅ Update acknowledged' : (r?.pending ? '⬇ Update ready — extract ZIP & reload' : '🟢 Active (hourly)');
     }
     if (lastCheckEl && r?.timestamp) {
       const diff = Math.floor((Date.now() - r.timestamp) / 60000);

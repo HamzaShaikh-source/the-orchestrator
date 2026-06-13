@@ -156,31 +156,10 @@ async function hotUpdateContentScripts(cache) {
   
   if (contentScripts.length === 0) return { updated: 0 };
   
-  try {
-    /* Unregister all existing dynamically registered content scripts */
-    await chrome.scripting.unregisterContentScripts();
-    
-    /* Register updated content scripts */
-    const scripts = contentScripts.map(([path, code]) => {
-      const matches = pathToMatches(path);
-      if (!matches) return null;
-      return {
-        id: `autoupdate_${path.replace(/[\/.]/g, '_')}`,
-        matches,
-        js: [{ code }],
-        runAt: 'document_end',
-        world: 'MAIN'
-      };
-    }).filter(Boolean);
-    
-    if (scripts.length > 0) {
-      await chrome.scripting.registerContentScripts(scripts);
-    }
-    return { updated: contentScripts.length };
-  } catch (err) {
-    console.error('[AutoUpdate] Content script hot-update failed:', err);
-    return { updated: 0, error: err.message };
-  }
+  /* Chrome's scripting.registerContentScripts() only accepts file paths
+     in the `js` array, not inline code objects. So content scripts can't
+     be hot-updated without a full extension reload. Cache them for next reload. */
+  return { updated: 0, note: 'Content scripts need reload to apply — see applyCachedUpdateOnRestart' };
 }
 
 function pathToMatches(path) {
@@ -208,24 +187,18 @@ async function hotUpdateImports(cache) {
   return { updated: importFiles.length, note: 'Cached for next reload — hot-reload not possible for service worker imports' };
 }
 
-/* ── Apply cached update to content scripts on restart ── */
+/* ── Apply cached update on restart ── */
 async function applyCachedUpdateOnRestart() {
   try {
-    const { _updateCache, _updateSha, _updateApplied } = await chrome.storage.local.get([
-      '_updateCache', '_updateSha', '_updateApplied'
+    const { _updateSha, _updateApplied } = await chrome.storage.local.get([
+      '_updateSha', '_updateApplied'
     ]);
     
-    if (_updateCache && _updateSha && !_updateApplied) {
-      console.log(`[AutoUpdate] Applying cached update ${_updateSha.slice(0, 8)}`);
-      
-      /* Hot-update content scripts */
-      const csResult = await hotUpdateContentScripts(_updateCache);
-      
-      /* Mark as applied so we don't re-apply on every restart */
+    if (_updateSha && !_updateApplied) {
+      console.log(`[AutoUpdate] Update ${_updateSha.slice(0, 8)} cached, marking applied`);
       await chrome.storage.local.set({ _updateApplied: true, _updateAppliedAt: Date.now() });
-      
-      addPipelineLog(`✅ Auto-updated: ${_updateSha.slice(0, 8)} (${csResult.updated} content scripts)`);
-      return { sha: _updateSha, contentScriptsUpdated: csResult.updated };
+      addPipelineLog(`✅ Update cached: ${_updateSha.slice(0, 8)} — reload to apply`);
+      return { sha: _updateSha };
     }
     return null;
   } catch (err) {
@@ -250,55 +223,42 @@ async function performAutoUpdate() {
     
     addPipelineLog(`⬇ Update found: ${update.message}`);
     
-    /* Step 1: Cache updated file contents */
+    /* Step 1: Cache updated file contents for reference */
     const cache = await cacheUpdatedFiles(update.latestSha);
-    addPipelineLog(`📦 Cached ${Object.keys(cache).length} files`);
+    addPipelineLog(`📦 Cached ${Object.keys(cache).length} files in storage`);
     
-    /* Step 2: Hot-update content scripts (instant, no reload needed) */
-    const csResult = await hotUpdateContentScripts(cache);
-    if (csResult.updated > 0) {
-      addPipelineLog(`⚡ Hot-updated ${csResult.updated} content scripts`);
-    }
+    /* Note: Content scripts can't be hot-swapped because Chrome's scripting API
+       only accepts file path strings in js[], not inline code. And chrome.runtime.reload()
+       won't apply the update either — the service worker restarts but the unpacked
+       extension files on disk haven't changed. The user must extract the ZIP. */
     
-    /* Step 3: Download ZIP for manual extraction */
+    /* Step 2: Download ZIP for manual extraction */
     const dlResult = await downloadLatestUpdate();
-    
-    /* Step 4: Auto-reload if background imports changed */
-    const importFiles = Object.keys(cache).filter(f => f.startsWith('src/') && f !== 'src/background.js');
-    const needsReload = importFiles.length > 0 || update.latestSha !== (await chrome.storage.local.get(UPDATE_CHECK_KEY))[UPDATE_CHECK_KEY];
-    
-    if (needsReload) {
-      /* Store SHA so next restart knows update happened */
-      await chrome.storage.local.set({
-        _updatePending: true,
-        _updateApplied: false, /* Reset so applyCachedUpdateOnRestart works */
-        [UPDATE_CHECK_KEY]: update.latestSha
-      });
-      
-      addPipelineLog('🔄 Auto-reloading extension in 3s…');
-      
-      /* Schedule reload — this will pick up cached content scripts on restart */
-      setTimeout(() => {
-        chrome.runtime.reload();
-      }, 3000);
-      
-      return {
-        status: 'reloading',
-        sha: update.latestSha,
-        message: update.message,
-        csUpdated: csResult.updated,
-        cachedFiles: Object.keys(cache).length,
-        downloaded: dlResult.success
-      };
+    if (!dlResult.success) {
+      addPipelineLog(`❌ Download failed: ${dlResult.error}`);
+      return { status: 'error', error: dlResult.error };
     }
+    addPipelineLog('✅ Update ZIP downloaded');
+    
+    /* Step 3: Mark update as pending */
+    await chrome.storage.local.set({
+      _updatePending: true,
+      _updateSha: update.latestSha,
+      _updateTimestamp: Date.now(),
+      _updateApplied: false,
+      [UPDATE_CHECK_KEY]: update.latestSha
+    });
+    
+    addPipelineLog('📋 Extract the ZIP over your extension folder, then click Reload');
     
     return {
-      status: 'updated',
+      status: 'downloaded',
       sha: update.latestSha,
       message: update.message,
-      csUpdated: csResult.updated,
-      downloaded: dlResult.success
+      downloaded: true,
+      downloadPath: dlResult.path
     };
+    
   } catch (err) {
     console.error('[AutoUpdate] Failed:', err);
     addPipelineLog(`❌ Auto-update failed: ${err.message}`);
