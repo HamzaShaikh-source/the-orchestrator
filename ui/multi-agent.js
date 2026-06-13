@@ -1,4 +1,4 @@
-/* v2.1 — Production UI: 1s poll, robust reconnection, agent health */
+/* v2.2 — Port-based real-time, pipeline log, health dashboard, prompt library, drag-to-reorder */
 
 const $ = id => document.getElementById(id.replace('#', ''));
 let pollTimer = null, running = false, currentChatId = null, selectedAgents = [];
@@ -7,6 +7,12 @@ let pipelineStartTime = null, _lastOutputs = null;
 let _reconnectAttempts = 0;
 let _taskStartTimes = {};
 let _paletteOpen = false;
+let currentState = null;
+
+/* ── Port-based real-time state ── */
+let statePort = null;
+let lastPortUpdate = 0;
+let portReconnectTimer = null;
 
 /* ── Settings ── */
 const SETTINGS_KEY = 'orchestratorSettings';
@@ -36,6 +42,39 @@ function applySettingsUI() {
     if (el.classList.contains('toggle-switch')) el.classList.toggle('on', !!settings[key]);
     else el.value = settings[key];
   });
+}
+
+/* ── Port-based connection ── */
+function connectStatePort() {
+  try {
+    if (statePort) { try { statePort.disconnect(); } catch(e) {} }
+    statePort = chrome.runtime.connect({name: 'orchestrator-state'});
+    statePort.onMessage.addListener((msg) => {
+      if (msg.type === 'stateUpdate') {
+        lastPortUpdate = Date.now();
+        currentState = msg.state;
+        render(msg.state);
+        if (msg.state.pipelineLog) updatePipelineLog(msg.state.pipelineLog);
+        else { const pls = document.getElementById('pipelineLogSection'); if (pls) pls.style.display = 'none'; }
+        updateHealthDashboard(msg.state.agents);
+      }
+    });
+    statePort.onDisconnect.addListener(() => {
+      statePort = null;
+      updateConnectionStatus('disconnected');
+      clearTimeout(portReconnectTimer);
+      portReconnectTimer = setTimeout(connectStatePort, 3000);
+    });
+    updateConnectionStatus('connected');
+  } catch(e) {
+    updateConnectionStatus('disconnected');
+  }
+}
+
+function updateConnectionStatus(status) {
+  const dot = document.getElementById('connectionStatus');
+  if (!dot) return;
+  dot.className = 'connection-status ' + status;
 }
 
 /* ── Toast ── */
@@ -123,12 +162,54 @@ async function checkAgentHealth() {
   }
 }
 
+/* ── Drag-to-reorder ── */
+function enableTaskDragDrop(container) {
+  let dragItem = null;
+  container.addEventListener('dragstart', (e) => {
+    dragItem = e.target.closest('.task-card');
+    if (!dragItem) return;
+    dragItem.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  container.addEventListener('dragend', (e) => {
+    const el = e.target.closest('.task-card');
+    if (el) el.classList.remove('dragging');
+    dragItem = null;
+  });
+  container.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const after = getDragAfterElement(container, e.clientY);
+    const dragging = container.querySelector('.dragging');
+    if (!dragging) return;
+    if (after) container.insertBefore(dragging, after);
+    else container.appendChild(dragging);
+  });
+  container.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const cards = container.querySelectorAll('.task-card');
+    const newOrder = Array.from(cards).map(c => parseInt(c.dataset.taskIndex));
+    if (typeof currentState !== 'undefined' && currentState && currentState.agentTasks) {
+      currentState.agentTasks = newOrder.map(i => currentState.agentTasks[i]);
+    }
+  });
+}
+
+function getDragAfterElement(container, y) {
+  const els = [...container.querySelectorAll('.task-card:not(.dragging)')];
+  return els.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) return {offset, element: child};
+    return closest;
+  }, {offset: Number.NEGATIVE_INFINITY}).element;
+}
+
 /* ── Tasks ── */
 function renderTasks(tasks, editable) {
   const c = $('#task-list');
   if (!tasks?.length) { $('#tasks-section')?.classList.add('hidden'); return; }
   $('#tasks-section')?.classList.remove('hidden');
-  c.innerHTML = tasks.map((t,i) => `<div class="task-tile" style="${settings.animSpeed?`animation-delay:${i*40}ms`:''}">
+  c.innerHTML = tasks.map((t,i) => `<div class="task-tile task-card" draggable="true" data-task-index="${i}" style="${settings.animSpeed?`animation-delay:${i*40}ms`:''}">
     <div class="tile-num">#${i+1}</div>
     <div class="tile-body">
       <div class="tile-status ${t.status}">${t.status||'pending'}</div>
@@ -387,6 +468,32 @@ function renderSynthesis(text) {
   if (sb) sb.textContent = display || '';
 }
 
+/* ── Pipeline log ── */
+function updatePipelineLog(logEntries) {
+  const container = document.getElementById('pipelineLogContainer');
+  const section = document.getElementById('pipelineLogSection');
+  if (!container) return;
+  if (!logEntries || logEntries.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  container.innerHTML = logEntries.map(e =>
+    `<div class="log-entry ${e.level || 'info'}">${escapeHtml(e.message || '')}</div>`
+  ).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+/* ── Health dashboard ── */
+function updateHealthDashboard(agents) {
+  const container = document.getElementById('healthContainer');
+  if (!container) return;
+  if (!agents || agents.length === 0) { container.innerHTML = '<div style="font-size:11px;color:var(--text-secondary);padding:4px;">No agents</div>'; return; }
+  container.innerHTML = agents.map(a => {
+    const rel = a.reliability !== undefined ? Math.round(a.reliability * 100) + '%' : '—';
+    const online = a.status === 'online' || a.reliability > 0.3;
+    const cls = online ? 'online' : (a.reliability > 0 ? 'degraded' : 'offline');
+    return `<div class="health-item"><span class="health-name">${escapeHtml(a.name || a.id)}</span><span class="health-status ${cls}">${rel}</span></div>`;
+  }).join('');
+}
+
 /* ── Export ── */
 async function exportResults() {
   const goal = $('#goal-input').value||'Chat';
@@ -465,9 +572,13 @@ function render(state) {
   } else { pd.classList.remove('active'); }
 
   renderTasks(state.tasks, state.step==='confirm-tasks');
+  if (state.step==='confirm-tasks') enableTaskDragDrop(document.getElementById('task-list'));
   if (['running','brain-writing','brain-executing','brain-reviewing','synthesis','done'].includes(state.step)) syncFilesFromAI(state.agentOutputs);
   renderOutputs(state.agentOutputs);
   renderSynthesis(state.synthesis);
+  if (state.pipelineLog) updatePipelineLog(state.pipelineLog);
+  else { const pls = document.getElementById('pipelineLogSection'); if (pls) pls.style.display = 'none'; }
+  if (state.agents) updateHealthDashboard(state.agents);
   if (Object.keys(projectFiles).length>0) renderFilePanel();
 
   $('#confirm-bar').style.display = state.step==='confirm-tasks'?'flex':'none';
@@ -498,12 +609,13 @@ function render(state) {
   }
 }
 
-/* ── Polling (1s interval) ── */
+/* ── Polling (5s fallback, skipped when port is alive) ── */
 async function fetchState() {
   try {
     const s = await chrome.runtime.sendMessage({action:'multiStatus'});
     if (s) {
       _reconnectAttempts = 0;
+      currentState = s;
       render(s);
       if (['running','brain-writing','brain-executing','brain-reviewing','synthesis'].includes(s.step))
         sessionStorage.setItem('pipelineState',JSON.stringify({step:s.step,projectFiles}));
@@ -518,7 +630,13 @@ async function fetchState() {
     }
   } catch { if (running) _reconnectAttempts++; }
 }
-function startPoll() { stopPoll(); pollTimer=setInterval(fetchState, settings.pollMs||1000); }
+function startPoll() {
+  stopPoll();
+  pollTimer=setInterval(() => {
+    if (Date.now() - lastPortUpdate < 10000) return; // Port is alive, skip polling
+    fetchState();
+  }, 5000);
+}
 function stopPoll() { if(pollTimer) clearInterval(pollTimer); }
 
 /* ── Templates ── */
@@ -710,11 +828,27 @@ function toggleCommandPalette() {
 
 /* ── Shortcuts ── */
 document.addEventListener('keydown', e => {
-  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!running) $('#run-btn')?.click();
-  if(e.key==='Escape'){if(_paletteOpen)toggleCommandPalette();else if(running)$('#stop-btn')?.click();}
-  if(e.key==='?'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();toggleShortcuts();}
-  if(e.key==='n'&&(e.ctrlKey||e.metaKey)){e.preventDefault();newChat();}
-  if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();toggleCommandPalette();}
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault();
+    const runBtn = document.getElementById('run-btn');
+    if (runBtn && !running) runBtn.click();
+  }
+  if (e.ctrlKey && e.shiftKey && e.key === 'N') {
+    e.preventDefault();
+    newChat();
+  }
+  if (e.ctrlKey && e.key === 'e' && !e.shiftKey) {
+    e.preventDefault();
+    exportSession();
+  }
+  if (e.key === 'Escape') {
+    if (_paletteOpen) toggleCommandPalette();
+    else if (running) document.getElementById('stop-btn')?.click();
+    document.querySelectorAll('.modal-overlay[style*="display: block"], .modal-overlay[style*="display:block"]').forEach(m => { m.style.display = 'none'; });
+  }
+  if (e.ctrlKey && e.key === 'k') { e.preventDefault(); toggleCommandPalette(); }
+  if (e.key === '?' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); toggleShortcuts(); }
+  if (e.key === 'n' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); newChat(); }
 });
 
 let shortcutsOpen = false;
@@ -731,6 +865,28 @@ function toggleShortcuts() {
   m.addEventListener('click',e=>{if(e.target===m){m.remove();shortcutsOpen=false;}});
 }
 $('#shortcuts-btn')?.addEventListener('click', toggleShortcuts);
+
+document.getElementById('shortcuts-btn')?.addEventListener('click', (e) => {
+  /* Only show tooltip if shortcuts modal isn't already open */
+  if (document.querySelector('.shortcuts-modal')) return;
+  const existing = document.getElementById('shortcutsTooltip');
+  if (existing) { existing.remove(); return; }
+  const tip = document.createElement('div');
+  tip.id = 'shortcutsTooltip';
+  tip.style.cssText = 'position:fixed;bottom:16px;right:16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.15);max-width:260px;';
+  tip.innerHTML = `<div style="font-weight:600;margin-bottom:8px;">⌨️ Shortcuts</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;">
+      <span style="color:var(--text-secondary)">Ctrl+Enter</span><span>Run agents</span>
+      <span style="color:var(--text-secondary)">Ctrl+Shift+N</span><span>New session</span>
+      <span style="color:var(--text-secondary)">Ctrl+E</span><span>Export</span>
+      <span style="color:var(--text-secondary)">Esc</span><span>Close modal</span>
+      <span style="color:var(--text-secondary)">Ctrl+K</span><span>Command palette</span>
+    </div>
+    <button id="dismissShortcuts" style="margin-top:8px;width:100%;padding:4px;border-radius:4px;border:1px solid var(--border);background:var(--bg-secondary);cursor:pointer;font-size:11px;color:var(--text-primary);">Got it</button>`;
+  document.body.appendChild(tip);
+  document.getElementById('dismissShortcuts')?.addEventListener('click', () => tip.remove());
+  setTimeout(() => { const t = document.getElementById('shortcutsTooltip'); if (t) t.remove(); }, 15000);
+});
 
 /* ── Settings ── */
 let settingsOpen = false;
@@ -798,7 +954,137 @@ function initSettings() {
     } else { el.addEventListener('change', handler); }
   });
   $('#settings-reset')?.addEventListener('click',()=>{if(!confirm('Reset settings?'))return;settings={...DEFAULT_SETTINGS};saveSettings();applySettingsUI();showToast('Settings reset','success');showSaveIndicator();});
+  /* Clear pipeline log */
+  document.getElementById('clearLogBtn')?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({action:'clearPipelineLog'});
+    const pls = document.getElementById('pipelineLogSection');
+    if (pls) pls.style.display = 'none';
+  });
+  /* Collapse/expand all */
+  document.getElementById('collapseAllBtn')?.addEventListener('click', () => {
+    document.querySelectorAll('.output-card').forEach(card => {
+      const content = card.querySelector('.body');
+      if (content) { content.style.maxHeight = '0px'; content.style.padding = '0 16px'; }
+      const ch = card.querySelector('.collapse-chevron');
+      if (ch) ch.style.transform = 'rotate(-90deg)';
+    });
+  });
+  document.getElementById('expandAllBtn')?.addEventListener('click', () => {
+    document.querySelectorAll('.output-card').forEach(card => {
+      const content = card.querySelector('.body');
+      if (content) { content.style.maxHeight = '2000px'; content.style.padding = ''; }
+      const ch = card.querySelector('.collapse-chevron');
+      if (ch) ch.style.transform = '';
+    });
+  });
 }
+
+/* ── Prompt library (localStorage CRUD) ── */
+const PROMPT_LIB_KEY = 'orchestrator_prompt_library';
+
+function loadPromptLib() { try { return JSON.parse(localStorage.getItem(PROMPT_LIB_KEY)) || []; } catch { return []; } }
+function savePromptLib(lib) { localStorage.setItem(PROMPT_LIB_KEY, JSON.stringify(lib)); }
+
+function renderPromptList(filter) {
+  const list = document.getElementById('promptList');
+  if (!list) return;
+  const lib = loadPromptLib();
+  const f = filter ? lib.filter(p => p.name.toLowerCase().includes(filter.toLowerCase())) : lib;
+  if (!f.length) { list.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:13px;">No saved templates</div>'; return; }
+  list.innerHTML = f.map((p, i) => `<div class="prompt-item" data-idx="${i}">
+    <span class="prompt-item-name">${escapeHtml(p.name)}</span>
+    <span class="prompt-item-preview">${escapeHtml(p.goal?.substring(0,60) || '')}</span>
+    <span class="prompt-item-actions">
+      <button class="icon-btn load-prompt" title="Load">📂</button>
+      <button class="icon-btn del-prompt" title="Delete">🗑️</button>
+    </span>
+  </div>`).join('');
+  list.querySelectorAll('.load-prompt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.closest('.prompt-item').dataset.idx);
+      const lib = loadPromptLib();
+      const realIndex = lib.findIndex(p => p.name === f[idx]?.name);
+      if (realIndex > -1) {
+        document.getElementById('goal-input').value = lib[realIndex].goal || '';
+        if (lib[realIndex].agents) {
+          document.querySelectorAll('input[name="agents"]').forEach(cb => cb.checked = lib[realIndex].agents.includes(cb.value));
+        }
+        closeModal('promptModal');
+      }
+    });
+  });
+  list.querySelectorAll('.del-prompt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.closest('.prompt-item').dataset.idx);
+      const lib = loadPromptLib();
+      const realIndex = lib.findIndex(p => p.name === f[idx]?.name);
+      if (realIndex > -1) { lib.splice(realIndex, 1); savePromptLib(lib); renderPromptList(document.getElementById('promptSearchInput')?.value || ''); }
+    });
+  });
+}
+
+document.getElementById('savePromptBtn')?.addEventListener('click', () => {
+  const name = document.getElementById('promptNameInput')?.value.trim();
+  if (!name) return;
+  const goal = document.getElementById('goal-input')?.value || '';
+  const agents = Array.from(document.querySelectorAll('input[name="agents"]:checked')).map(cb => cb.value);
+  const lib = loadPromptLib();
+  lib.push({ name, goal, agents, savedAt: Date.now() });
+  savePromptLib(lib);
+  document.getElementById('promptNameInput').value = '';
+  renderPromptList();
+});
+
+document.getElementById('promptSearchInput')?.addEventListener('input', (e) => renderPromptList(e.target.value));
+document.getElementById('promptLibBtn')?.addEventListener('click', () => { renderPromptList(); openModal('promptModal'); });
+
+document.querySelectorAll('.modal-close').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.modal;
+    if (id) closeModal(id);
+  });
+});
+
+/* ── Export / Import ── */
+function exportSession() {
+  if (!currentState && !document.getElementById('synth-body')?.textContent) { showToast('Nothing to export', 'error'); return; }
+  const data = {
+    version: '2.2.0', exportedAt: new Date().toISOString(),
+    goal: currentState?.goal || document.getElementById('goal-input')?.value || '',
+    agents: currentState?.agents || [],
+    agentTasks: currentState?.agentTasks || [],
+    results: currentState?.agentOutputs || _lastOutputs || {},
+    synthesis: currentState?.synthesis || document.getElementById('synth-body')?.textContent || '',
+    pipelineLog: currentState?.pipelineLog || []
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `orchestrator-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Session exported', 'success');
+}
+
+function importSession(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.goal && !data.agentTasks) { showToast('Invalid export file', 'error'); return; }
+      if (data.goal) document.getElementById('goal-input').value = data.goal;
+      if (data.results) { _lastOutputs = data.results; renderOutputs(data.results); }
+      if (data.synthesis) renderSynthesis(data.synthesis);
+      showToast('Session imported', 'success');
+    } catch { showToast('Failed to parse file', 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+document.getElementById('exportBtn')?.addEventListener('click', exportSession);
+document.getElementById('importBtn')?.addEventListener('click', () => document.getElementById('importFileInput')?.click());
+document.getElementById('importFileInput')?.addEventListener('change', (e) => { if (e.target.files[0]) importSession(e.target.files[0]); e.target.value = ''; });
 
 /* ── Auto-update ── */
 let _updateSha = '', _updateMsg = '';
@@ -900,6 +1186,9 @@ $('#update-skip-btn')?.addEventListener('click', () => {
 /* ── Utilities ── */
 function esc(s){return String(s).replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;');}
 function escAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');}
+function escapeHtml(str) { return esc(str); }
+function openModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'block'; }
+function closeModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 function highlightSyntax(code) {
   let h=esc(code);
   h=h.replace(/(&lt;\/?[a-zA-Z][^&]*&gt;)/g,'<span style="color:#e879f9">$1</span>');
@@ -947,6 +1236,7 @@ function highlightSyntax(code) {
   requestAnimationFrame(() => { document.body.style.transition='opacity 0.3s'; document.body.style.opacity='1'; });
 
   initSettings();
+  connectStatePort();
   renderAgentCards();
   await renderChatList();
   newChat();

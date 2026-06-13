@@ -306,8 +306,49 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     deleteChat: () => { deleteChat(msg.chatId).then(() => sendResponse({ ok: true })); return true; },
     confirmTasks: () => { setMultiState({ tasksConfirmed: true }); return { ok: true }; },
     rejectTasks: () => { setMultiState({ tasksConfirmed: false }); return { ok: true }; },
-    retryTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'pending'; /* Re-trigger execution — fire-and-forget, caller polls for status */ setMultiState({ tasks: [...tasks], step: 'running' }); }}); return { ok: true }; },
+    retryTask: () => {
+      getMultiState().then(s => {
+        const tasks = [...(s.tasks || [])];
+        const taskIdx = msg.taskIndex;
+        if (taskIdx >= 0 && taskIdx < tasks.length) {
+          const task = tasks[taskIdx];
+          task.status = 'pending';
+          task.error = null;
+          task.retryCount = (task.retryCount || 0) + 1;
+          setMultiState({ tasks: tasks, step: 'running' });
+          setTimeout(() => {
+            chrome.runtime.sendMessage({
+              action: 'runMulti',
+              goal: s.goal,
+              selectedAgents: s.selectedAgents
+            });
+          }, 1000);
+        }
+      });
+      return { ok: true };
+    },
     skipTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'skipped'; setMultiState({ tasks: [...tasks] }); }}); return { ok: true }; },
+    autoRetryTask: () => {
+      const delay = Math.min(1000 * Math.pow(2, msg.retryCount || 0), 8000);
+      setTimeout(() => {
+        getMultiState().then(state => {
+          const tasks = [...(state.tasks || [])];
+          const task = tasks[msg.taskIdx];
+          if (!task || (task.status !== 'pending' && task.status !== 'error')) return;
+          task.status = 'pending';
+          task.error = null;
+          task.retryCount = (task.retryCount || 0) + 1;
+          setMultiState({ tasks: tasks, step: 'running' }).then(() => {
+            chrome.runtime.sendMessage({
+              action: 'runMulti',
+              goal: state.goal,
+              selectedAgents: state.selectedAgents
+            });
+          });
+        });
+      }, delay);
+      return { autoRetried: true, delay };
+    },
     checkUpdate: () => { addPipelineLog('Checking for update'); checkForUpdate().then(sendResponse); return true; },
     downloadUpdate: () => { addPipelineLog('Downloading update'); downloadLatestUpdate().then(sendResponse); return true; },
     acknowledgeUpdate: () => { acknowledgeUpdate(msg.sha).then(() => sendResponse({ ok: true })); return true; },
@@ -328,4 +369,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
   }
   return false;
+});
+
+/* ── Port-based state connection (for multi-agent.html real-time updates) ── */
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'orchestrator-state') {
+    handleStatePort(port);
+  }
 });

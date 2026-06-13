@@ -58,7 +58,9 @@ function truncateForStorage(obj, maxKB = MAX_OUTPUT_KB) {
 function setMultiState(partial) {
   return chrome.storage.session.get('multiState').then(({ multiState }) => {
     const next = truncateForStorage({ ...(multiState || DEFAULT_MULTI_STATE), ...partial });
-    return chrome.storage.session.set({ multiState: next });
+    return chrome.storage.session.set({ multiState: next }).then(() => {
+      broadcastStateChange(next);
+    });
   });
 }
 
@@ -440,6 +442,34 @@ function startKeepalive() {
 }
 function stopKeepalive() {
   if (_keepaliveTimer) { clearInterval(_keepaliveTimer); _keepaliveTimer = null; }
+}
+
+// --- Port-based real-time state broadcasting ---
+const statePorts = new Map(); // portId -> {port, tabId}
+
+function broadcastStateChange(newState) {
+  const json = JSON.stringify(newState);
+  for (const [id, entry] of statePorts) {
+    try {
+      entry.port.postMessage({type: 'stateUpdate', state: newState});
+    } catch (e) {
+      statePorts.delete(id);
+    }
+  }
+}
+
+function handleStatePort(port) {
+  const id = port.sender?.tab?.id || Date.now() + Math.random();
+  statePorts.set(id, {port, tabId: port.sender?.tab?.id});
+  port.onDisconnect.addListener(() => {
+    statePorts.delete(id);
+  });
+  // Send current state immediately
+  chrome.storage.session.get('multiState').then((result) => {
+    if (result.multiState) {
+      port.postMessage({type: 'stateUpdate', state: result.multiState});
+    }
+  });
 }
 
 /* ── Login check ── */

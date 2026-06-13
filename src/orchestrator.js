@@ -81,13 +81,28 @@ async function ensureTab(agent, usedTabs, manualUrls, taskKey) {
 
 /* ── Error messages ── */
 function friendlyError(err, agentName) {
-  const msg = (err?.message || err || '').toLowerCase();
-  if (msg.includes('content_script')) return `${agentName} page needs refresh. Open ${agentName} manually and reload.`;
-  if (msg.includes('submit')) return `${agentName} send button not found. The UI may have changed.`;
-  if (msg.includes('inject')) return `Could not type into ${agentName}.`;
-  if (msg.includes('timeout') || msg.includes('poll')) return `${agentName} took too long. Try a simpler task.`;
-  if (msg.includes('cancel')) return 'Cancelled.';
-  return `${agentName}: ${err?.message || err}`;
+  const errText = (err?.message || err || '').toLowerCase();
+  if (errText.includes('429') || errText.includes('rate limit') || errText.includes('too many requests')) {
+    return { message: 'Rate limited by AI provider. Waiting before retry…', type: 'warning', retryable: true };
+  }
+  if (errText.includes('403') || errText.includes('forbidden') || errText.includes('unauthorized')) {
+    return { message: 'Access denied — check your API permissions or login status.', type: 'error', retryable: false };
+  }
+  if (errText.includes('crashed') || errText.includes('aw snap') || errText.includes('unresponsive')) {
+    return { message: 'Browser tab crashed — will reopen and retry.', type: 'warning', retryable: true };
+  }
+  if (errText.includes('ERR_NAME_NOT_RESOLVED') || errText.includes('ERR_CONNECTION_REFUSED')) {
+    return { message: 'Network error — check your internet connection.', type: 'error', retryable: true };
+  }
+  if (errText.includes('out of memory') || errText.includes('heap limit') || errText.includes('JavaScript heap')) {
+    return { message: 'Browser out of memory. Try closing other tabs.', type: 'error', retryable: false };
+  }
+  if (errText.includes('content_script')) return { message: `${agentName} page needs refresh. Open ${agentName} manually and reload.`, type: 'error', retryable: true };
+  if (errText.includes('submit')) return { message: `${agentName} send button not found. The UI may have changed.`, type: 'error', retryable: true };
+  if (errText.includes('inject')) return { message: `Could not type into ${agentName}.`, type: 'error', retryable: true };
+  if (errText.includes('timeout') || errText.includes('poll')) return { message: `${agentName} took too long. Try a simpler task.`, type: 'warning', retryable: true };
+  if (errText.includes('cancel')) return { message: 'Cancelled.', type: 'info', retryable: false };
+  return { message: `${agentName}: ${err?.message || err}`, type: 'error', retryable: false };
 }
 
 function findBetterAgent(task, currentAgent) {
@@ -212,7 +227,16 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
     }
   }
 
-  const friendly = friendlyError(lastError, agent.name);
+  const errorInfo = friendlyError(lastError, agent.name);
+  const friendly = errorInfo.message;
+  if (errorInfo.retryable && (task.retryCount || 0) < 2) {
+    chrome.runtime.sendMessage({
+      action: 'autoRetryTask',
+      retryCount: task.retryCount || 0,
+      taskIdx: tasks.indexOf(task),
+    });
+    return;
+  }
   agentOutputs[outputKey] = { output: '', status: 'error', error: friendly, task: task.description, agent: agent.name, agentId: agent.id };
   task.status = 'error';
   await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
@@ -465,7 +489,7 @@ Rules:
       await setMultiState({ step: 'cancelled' }); return;
     }
     console.error('Pipeline failed:', err);
-    await setMultiState({ step: 'error', error: friendlyError(err, 'the pipeline') });
+    await setMultiState({ step: 'error', error: friendlyError(err, 'the pipeline').message });
   } finally {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     multiRunning = false;
