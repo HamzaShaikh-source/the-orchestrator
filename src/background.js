@@ -5,6 +5,14 @@ importScripts('shared.js', 'agents.js', 'prompts.js', 'task-planner.js', 'task-r
 /* Initialize reliability tracking */
 initReliability();
 
+/* Pipeline log (rotating, last 50 lines) */
+const pipelineLog = [];
+const MAX_LOG_LINES = 50;
+function addPipelineLog(message) {
+  pipelineLog.push({ ts: Date.now(), msg: message });
+  if (pipelineLog.length > MAX_LOG_LINES) pipelineLog.splice(0, pipelineLog.length - MAX_LOG_LINES);
+}
+
 const DEFAULT_STATE = {
   step: 'idle', prompt: '', task: '',
   deepseekResponse: '', chatgptResponse: '',
@@ -33,10 +41,16 @@ const GITHUB_REPO = 'HamzaShaikh-source/the-orchestrator';
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/commits/main`;
 const GITHUB_ZIP = `https://github.com/${GITHUB_REPO}/archive/main.zip`;
 const UPDATE_CHECK_KEY = 'lastUpdateSha';
+let _lastUpdateCheck = 0;
 
 async function checkForUpdate() {
+  const now = Date.now();
+  if (now - _lastUpdateCheck < 300000) {
+    return { available: false, cached: true };
+  }
+  _lastUpdateCheck = now;
   try {
-    const res = await fetch(GITHUB_API);
+    const res = await fetch(GITHUB_API, { cache: 'no-cache' });
     if (!res.ok) return { available: false, error: `GitHub API: ${res.status}` };
     const data = await res.json();
     const latestSha = data.sha || '';
@@ -267,15 +281,25 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 /* ── Message handlers ── */
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const handlers = {
-    run: () => { run(msg.prompt, msg.task, msg.loopCount || 3, msg.manualDS || '', msg.manualGPT || ''); return { ok: true }; },
-    stop: () => { cancelled = true; setState({ step: 'cancelled', error: null }); return true; },
+    run: () => {
+      if (!msg.prompt) return { error: 'Missing prompt' };
+      addPipelineLog('Legacy pipeline started');
+      run(msg.prompt, msg.task, msg.loopCount || 3, msg.manualDS || '', msg.manualGPT || '');
+      return { ok: true };
+    },
+    stop: () => { cancelled = true; addPipelineLog('Pipeline stopped'); setState({ step: 'cancelled', error: null }); return true; },
     status: () => { getState().then(sendResponse); return true; },
     getConvHistory: () => { getConvHistory().then(sendResponse); return true; },
     clearState: () => { cancelled = true; running = false; pipelineGen++; chrome.storage.session.set({ state: { ...DEFAULT_STATE } }).then(() => sendResponse({ ok: true })); return true; },
     multiStatus: () => { getMultiState().then(sendResponse); return true; },
     stopMulti: () => { multiCancelled = true; setMultiState({ step: 'cancelled', error: null }); return { ok: true }; },
     getAgentConvs: () => { chrome.storage.local.get('agentConvs').then(({ agentConvs }) => sendResponse(agentConvs || {})); return true; },
-    runMulti: () => { runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null, msg.projectFiles || {}, msg.settings || {}); return { ok: true }; },
+    runMulti: () => {
+      if (!msg.goal) return { error: 'Missing goal' };
+      addPipelineLog(`Multi-agent pipeline started: ${msg.goal.slice(0, 80)}`);
+      runMulti(msg.goal, msg.manualUrls || {}, msg.selectedAgents || null, msg.chatId || null, msg.projectFiles || {}, msg.settings || {});
+      return { ok: true };
+    },
     loginRetry: () => { loginRetryRequested = true; return { ok: true }; },
     listChats: () => { listChats().then(sendResponse); return true; },
     getChat: () => { getChat(msg.chatId).then(sendResponse); return true; },
@@ -284,18 +308,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     rejectTasks: () => { setMultiState({ tasksConfirmed: false }); return { ok: true }; },
     retryTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'pending'; setMultiState({ tasks: [...tasks], step: 'running' }); }}); return true; },
     skipTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'skipped'; setMultiState({ tasks: [...tasks] }); }}); return true; },
-    checkUpdate: () => { checkForUpdate().then(sendResponse); return true; },
-    downloadUpdate: () => { downloadLatestUpdate().then(sendResponse); return true; },
+    checkUpdate: () => { addPipelineLog('Checking for update'); checkForUpdate().then(sendResponse); return true; },
+    downloadUpdate: () => { addPipelineLog('Downloading update'); downloadLatestUpdate().then(sendResponse); return true; },
     acknowledgeUpdate: () => { acknowledgeUpdate(msg.sha).then(() => sendResponse({ ok: true })); return true; },
     openDownloads: () => { chrome.downloads.showDefaultFolder(); sendResponse({ ok: true }); return true; },
     openExtensions: () => { chrome.tabs.create({ url: 'chrome://extensions', active: true }); sendResponse({ ok: true }); return true; },
+    getPipelineLog: () => { sendResponse([...pipelineLog]); return true; },
   };
 
   const handler = handlers[msg.action];
   if (handler) {
-    const result = handler();
-    if (result === true) return true; /* async */
-    sendResponse(result);
+    try {
+      const result = handler();
+      if (result === true) return true;
+      sendResponse(result);
+    } catch (err) {
+      console.error(`[BG] Handler error for ${msg.action}:`, err);
+      sendResponse({ error: err.message });
+    }
   }
   return false;
 });

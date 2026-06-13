@@ -4,7 +4,7 @@
   const S = {
     input: ['div.ql-editor', 'div[contenteditable="true"]', '#mat-input-0'],
     submit: ['button[aria-label="Send message"]', 'button.send-button'],
-    response: ['message-content', '.markdown-main-panel', '.model-response-content', '.message-content', '.conversation-turn'],
+    response: ['message-content', '.markdown-main-panel', '.model-response-content', '.message-content', '.conversation-turn', '[class*="conversation-turn"]'],
   };
 
   function $(sel) {
@@ -48,10 +48,14 @@
         }
         case 'submit': {
           const btn = await findSubmitBtn();
-          if (!btn) throw new Error('Gemini: could not find submit button');
-          btn.click();
-          console.log('[Gemini] Clicked submit');
-          return { ok: true };
+          if (btn) { btn.click(); return { ok: true }; }
+          const el = $(S.input);
+          if (el) {
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+            return { ok: true };
+          }
+          throw new Error('Gemini: could not submit');
         }
         case 'read': {
           return { text: readResponse() || '' };

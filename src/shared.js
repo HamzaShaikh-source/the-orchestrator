@@ -17,6 +17,8 @@ let running = false;
 let pipelineGen = 0;
 let loginRetryRequested = false;
 let _hiddenWindowId = null; /* Hidden window for background tab execution */
+let _hiddenTabs = new Map();
+let hiddenWindowReady = false;
 
 class CancelError extends Error {
   constructor() { super('Cancelled'); this.name = 'CancelError'; }
@@ -78,11 +80,11 @@ async function getMultiState() {
 let _offScreenWindowId = null;
 
 async function ensureOffScreenWindow() {
-  if (_offScreenWindowId) {
+  if (hiddenWindowReady && _offScreenWindowId) {
     try {
       const win = await chrome.windows.get(_offScreenWindowId);
       if (win) return _offScreenWindowId;
-    } catch { _offScreenWindowId = null; }
+    } catch { _offScreenWindowId = null; hiddenWindowReady = false; }
   }
   try {
     const win = await chrome.windows.create({
@@ -94,6 +96,7 @@ async function ensureOffScreenWindow() {
       state: 'normal',
     });
     _offScreenWindowId = win.id;
+    hiddenWindowReady = true;
     return win.id;
   } catch {
     return null; /* Fallback: regular background tabs */
@@ -144,10 +147,10 @@ async function cleanupHiddenWindow() {
       for (const t of tabs) {
         if (t.id && !t.url?.startsWith('about:blank')) await chrome.tabs.remove(t.id).catch(() => {});
       }
-      await chrome.windows.remove(_offScreenWindowId).catch(() => {});
     } catch { /* window may already be gone */ }
-    _offScreenWindowId = null;
   }
+  _hiddenTabs.clear();
+  hiddenWindowReady = false;
 }
 
 /* ── Agent Conversation URL Tracking ── */
@@ -203,6 +206,41 @@ async function updateAgentConv(agentId, tabId) {
 
 function openTab(url) { return openHiddenTab(url); } /* Legacy alias */
 
+async function getOrReuseTab(agentId, url) {
+  if (_hiddenTabs.has(agentId)) {
+    const existingId = _hiddenTabs.get(agentId);
+    try {
+      const tab = await chrome.tabs.get(existingId);
+      if (tab && !tab.discarded && tab.url && !tab.url.startsWith('about:blank')) {
+        return tab;
+      }
+    } catch {}
+    _hiddenTabs.delete(agentId);
+  }
+  if (_offScreenWindowId) {
+    try {
+      const tabs = await chrome.tabs.query({ windowId: _offScreenWindowId });
+      for (const t of tabs) {
+        if (t.url && !t.url.startsWith('about:blank')) {
+          _hiddenTabs.set(agentId, t.id);
+          return t;
+        }
+      }
+    } catch {}
+  }
+  const tab = await openHiddenTab(url);
+  _hiddenTabs.set(agentId, tab.id);
+  return tab;
+}
+
+async function closeAgentTab(agentId) {
+  const tabId = _hiddenTabs.get(agentId);
+  if (tabId) {
+    _hiddenTabs.delete(agentId);
+    try { await chrome.tabs.remove(tabId); } catch {}
+  }
+}
+
 function waitTab(tabId, timeout = 30000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -249,6 +287,24 @@ function sleep(ms) {
 
 const PLACEHOLDER_RE = /^(thinking|searching|generating|preparing|loading|analyzing|researching)/i;
 
+async function tryRecoverTab(tabId, prompt) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab?.id && tab?.url && !tab.url.startsWith('about:blank')) {
+      await chrome.tabs.reload(tabId);
+      await waitTab(tabId);
+      await sleep(3000);
+      if (await waitForContentScript(tabId)) {
+        await send(tabId, { action: 'inject', text: prompt });
+        await sleep(1000);
+        await send(tabId, { action: 'submit' });
+        return true;
+      }
+    }
+  } catch {}
+  return false;
+}
+
 /* ── Smarter 1s-interval poll with adaptive stability + readDeep fallback ── */
 async function poll(tabId, prompt, maxSec = 180) {
   let last = '';
@@ -267,9 +323,11 @@ async function poll(tabId, prompt, maxSec = 180) {
       if (readFailures >= 10) {
         const deep = await send(tabId, { action: 'readDeep' });
         if (deep?.text && deep.text.length > 50) return deep.text;
+        if (await tryRecoverTab(tabId, prompt)) { readFailures = 0; continue; }
         throw new Error(r.error);
       }
-      await sleep(POLL_INTERVAL_MS);
+      const backoffMs = Math.min(10000, Math.pow(2, readFailures - 1) * 1000);
+      await sleep(backoffMs);
       continue;
     }
     readFailures = 0;
@@ -287,6 +345,7 @@ async function poll(tabId, prompt, maxSec = 180) {
           await sleep(POLL_INTERVAL_MS);
           continue;
         }
+        if (await tryRecoverTab(tabId, prompt)) { emptyReads = 0; continue; }
       }
       await sleep(POLL_INTERVAL_MS);
       continue;
@@ -314,6 +373,11 @@ async function poll(tabId, prompt, maxSec = 180) {
   const deepScan = await send(tabId, { action: 'readDeep' });
   if (deepScan?.text && deepScan.text.length > 20) return deepScan.text;
   return '\u26a0\ufe0f Timeout';
+}
+
+async function pollWithTimeout(tabId, prompt, taskType) {
+  const maxSec = taskType === 'code' ? 180 : 120;
+  return poll(tabId, prompt, maxSec);
 }
 
 function isEcho(text, prompt) {

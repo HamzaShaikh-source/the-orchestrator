@@ -25,6 +25,43 @@
   --radius: 8px;
 }
 
+body.light {
+  color-scheme: light;
+  --bg: #f5f7fa;
+  --surface: rgba(255,255,255,0.9);
+  --surface-2: rgba(240,243,248,0.94);
+  --surface-3: rgba(235,238,243,0.96);
+  --line: rgba(0,0,0,0.1);
+  --line-strong: rgba(0,0,0,0.18);
+  --text: #1a1d26;
+  --muted: #5d687a;
+  --dim: #8a95a8;
+}
+body.light { background: var(--bg); }
+body.light .sidebar { border-right-color: var(--line); }
+body.light .main { background: var(--bg); }
+body.light .card-body { color: var(--text); }
+body.light .placeholder { color: var(--dim); }
+body.light input,
+body.light textarea { background: rgba(255,255,255,0.7); }
+body.light .fb-text { background: rgba(0,0,0,0.04); }
+body.light .metric { background: var(--surface); }
+body.light .result-card,
+body.light .feedback-card { background: var(--surface); }
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 5px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -504,6 +541,7 @@ button {
     </div>
     <div style="display:flex;gap:8px;margin-top:-8px;margin-bottom:2px">
       <button id="open-multi" style="flex:1;min-height:34px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-2);color:var(--muted);font-size:11px;font-weight:780;cursor:pointer">Multi-Agent Orchestrator</button>
+      <button id="theme-toggle" style="min-height:34px;padding:0 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-2);color:var(--muted);font-size:12px;font-weight:780;cursor:pointer;white-space:nowrap">&#9790;</button>
     </div>
 
     <section class="control-panel" aria-label="Pipeline controls">
@@ -578,14 +616,14 @@ button {
     <section class="results-grid" aria-label="Pipeline results">
       <div class="result-card">
         <div class="card-header"><span class="name">DeepSeek</span></div>
-        <div class="card-body" id="ds-result"><span class="placeholder">Waiting...</span></div>
+        <div class="card-body" id="ds-result"><span class="spinner"></span><span class="placeholder">Waiting...</span></div>
       </div>
       <div class="result-card">
         <div class="card-header">
           <span class="name">ChatGPT</span>
           <button class="copy" id="copy-btn" style="display:none">Copy</button>
         </div>
-        <div class="card-body" id="gpt-result"><span class="placeholder">Waiting...</span></div>
+        <div class="card-body" id="gpt-result"><span class="spinner"></span><span class="placeholder">Waiting...</span></div>
       </div>
     </section>
 

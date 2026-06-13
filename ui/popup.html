@@ -23,6 +23,46 @@
       --radius: 8px;
     }
 
+    body.light {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --panel: rgba(255,255,255,0.86);
+      --panel-strong: rgba(240, 243, 248, 0.94);
+      --panel-soft: rgba(0, 0, 0, 0.03);
+      --line: rgba(0,0,0,0.1);
+      --line-strong: rgba(0,0,0,0.18);
+      --text: #1a1d26;
+      --muted: #5d687a;
+      --dim: #8a95a8;
+    }
+    body.light { background: var(--bg); }
+    body.light .shell { background: rgba(255,255,255,0.92); }
+    body.light .shell::before { opacity: 0.08; }
+    body.light .content { color: var(--text); }
+    body.light .sub-content { color: var(--text); }
+    body.light .ghost-btn { background: rgba(0,0,0,0.04); }
+    body.light .use-btn { background: rgba(0,0,0,0.04); }
+    body.light textarea,
+    body.light input { background: rgba(255,255,255,0.7); }
+    body.light #status-bar { background: rgba(0,0,0,0.04); }
+    body.light .result-box .header { background: rgba(0,0,0,0.03); }
+    body.light .conv-item { background: rgba(0,0,0,0.03); }
+    body.light .conv-item:hover { background: rgba(0,0,0,0.06); }
+    body.light #run { color: #fff; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--line);
+      border-top-color: var(--brand);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 5px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
@@ -373,6 +413,7 @@
         <div class="header-actions" style="display:flex;gap:6px">
           <button id="open-dashboard" class="ghost-btn" title="Open dashboard">Dashboard</button>
           <button id="open-multi" class="ghost-btn" title="Multi-agent orchestrator">Multi</button>
+          <button id="theme-toggle" class="ghost-btn" title="Toggle theme">&#9790;</button>
         </div>
       </div>
 
@@ -421,7 +462,7 @@
           <div class="header">
             <span class="label">DeepSeek</span>
           </div>
-          <div class="content" id="ds-result"><span class="placeholder">Waiting...</span></div>
+          <div class="content" id="ds-result"><span class="spinner"></span><span class="placeholder">Waiting...</span></div>
         </div>
 
         <div class="result-box">
@@ -429,7 +470,7 @@
             <span class="label">ChatGPT</span>
             <button class="copy" id="copy-btn" style="display:none">Copy</button>
           </div>
-          <div class="content" id="gpt-result"><span class="placeholder">Waiting...</span></div>
+          <div class="content" id="gpt-result"><span class="spinner"></span><span class="placeholder">Waiting...</span></div>
         </div>
       </section>
 

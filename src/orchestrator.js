@@ -90,6 +90,25 @@ function friendlyError(err, agentName) {
   return `${agentName}: ${err?.message || err}`;
 }
 
+function findBetterAgent(task, currentAgent) {
+  if (!task || !task.type) return null;
+  const pool = allActiveAgents().filter(a => a.id !== currentAgent.id);
+  if (!pool.length) return null;
+  const normalizedType = task.type;
+  const currentScore = currentAgent.strengths[normalizedType] || currentAgent.strengths.code || 1;
+  const currentAdjusted = getAdjustedStrength(currentScore, currentAgent.id);
+  let best = null, bestAdjusted = 0;
+  for (const a of pool) {
+    const baseScore = a.strengths[normalizedType] || a.strengths.code || 1;
+    const adjusted = getAdjustedStrength(baseScore, a.id);
+    if (adjusted > bestAdjusted) {
+      bestAdjusted = adjusted;
+      best = a;
+    }
+  }
+  return best && bestAdjusted > currentAdjusted ? best : null;
+}
+
 /* ── Task execution with retry and dependency ordering ── */
 
 /* Determine task dependency order based on types */
@@ -106,9 +125,22 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
   const maxRetries = Math.max(1, Math.min(5, Number(runSettings.retries) || DEFAULT_RUN_SETTINGS.retries));
   const outputKey = taskKey || agent.id;
   let lastError = null;
+  let failoverDone = false;
+  const preCheckTab = usedTabs[taskKey || agent.id];
+  if (!preCheckTab || !(await tabAlive(preCheckTab.id))) {
+    console.log(`[Orch] Tab for ${agent.name} not alive before task, will reopen`);
+  }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     if (multiCancelled) throw new CancelError();
+    if (attempt === 3 && !failoverDone) {
+      const betterAgent = findBetterAgent(task, agent);
+      if (betterAgent) {
+        console.log(`[Orch] Failover: ${agent.name} -> ${betterAgent.name} for ${task.type} task`);
+        agent = betterAgent;
+        failoverDone = true;
+      }
+    }
     if (attempt > 1) {
       console.log(`[Orch] Retry #${attempt} for ${agent.name}`);
       const key = taskKey || agent.id;
@@ -252,6 +284,7 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
   multiCancelled = false;
   startKeepalive();
 
+  let heartbeatInterval;
   try {
     const usedTabs = {};
     const settings = { ...DEFAULT_RUN_SETTINGS, ...(runSettings || {}) };
@@ -296,9 +329,22 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
 
     await setMultiState({ sharedContext: { goal, files: Object.keys(projectFiles), agentSummaries: {} } });
 
+    heartbeatInterval = setInterval(async () => {
+      for (const [key, tab] of Object.entries(usedTabs)) {
+        if (!(await tabAlive(tab.id))) {
+          const agent = getAgent(key.replace(/-\d+$/, ''));
+          if (agent) {
+            console.log(`[Heartbeat] Reopening tab for ${agent.name}`);
+            const newTab = await openHiddenTab(agent.url);
+            usedTabs[key] = newTab;
+          }
+        }
+      }
+    }, 5000);
+
     /* ── 1. Brain creates the task plan ── */
     await setMultiState({ step: 'planning' });
-    let tasks = await planTasks(goal, usedTabs);
+    let tasks = await planTasks(goal, usedTabs, settings.maxAgents);
     if (multiCancelled) throw new CancelError();
 
     /* ── 2. Route with dependency ordering ── */
@@ -413,6 +459,7 @@ Rules:
 
     console.log('=== Pipeline complete ===');
   } catch (err) {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (err instanceof CancelError) {
       console.log('=== Pipeline cancelled ===');
       await setMultiState({ step: 'cancelled' }); return;
@@ -420,6 +467,7 @@ Rules:
     console.error('Pipeline failed:', err);
     await setMultiState({ step: 'error', error: friendlyError(err, 'the pipeline') });
   } finally {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
     multiRunning = false;
     setMultiState({ tasksConfirmed: null });
     /* Cleanup hidden window */

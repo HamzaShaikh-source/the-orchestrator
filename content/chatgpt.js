@@ -133,9 +133,14 @@
         }
         case 'submit': {
           const btn = await waitForButton();
-          if (!btn) throw new Error('ChatGPT: submit button not found');
-          btn.click();
-          return { ok: true };
+          if (btn) { btn.click(); return { ok: true }; }
+          const el = findInput();
+          if (el) {
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+            return { ok: true };
+          }
+          throw new Error('ChatGPT: could not submit');
         }
         case 'read': {
           let text = '';
@@ -161,16 +166,25 @@
           return { text };
         }
         case 'readDeep': {
-          /* Deep scan: return the largest meaningful text block */
           let best = '', bestLen = 0;
-          const allEls = document.body.querySelectorAll('div, p, section, article');
-          for (const el of allEls) {
-            if (el.offsetHeight === 0) continue;
-            if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
-            const t = (el.innerText || '').trim();
-            if (t.length > bestLen && t.length < 50000) {
-              if (UI_PATTERNS.some(ui => t.toLowerCase().includes(ui)) && t.length < 500) continue;
-              best = t; bestLen = t.length;
+          const assisMessages = document.querySelectorAll('div[data-message-author-role="assistant"]');
+          for (const msg of assisMessages) {
+            const article = msg.closest('article');
+            if (article) {
+              const t = (article.innerText || '').trim();
+              if (t.length > 20) { best = t; bestLen = t.length; break; }
+            }
+          }
+          if (!best) {
+            const allEls = document.body.querySelectorAll('div, p, section, article');
+            for (const el of allEls) {
+              if (el.offsetHeight === 0) continue;
+              if (el.closest('textarea') || el.closest('[class*="input"]') || el.closest('[class*="composer"]')) continue;
+              const t = (el.innerText || '').trim();
+              if (t.length > bestLen && t.length < 50000) {
+                if (UI_PATTERNS.some(ui => t.toLowerCase().includes(ui)) && t.length < 500) continue;
+                best = t; bestLen = t.length;
+              }
             }
           }
           return { text: best };
@@ -183,8 +197,11 @@
           return { ok: true };
         }
         case 'checkLogin': {
-          const hasLogin = [...document.querySelectorAll('a, button')].some(el => /log in|sign in|sign up/i.test(el.innerText));
-          return { loggedIn: !hasLogin };
+          const hasLoginEl = [...document.querySelectorAll('a, button')].some(el => /log in|sign in|sign up/i.test(el.innerText));
+          if (hasLoginEl) return { loggedIn: false };
+          const avatar = document.querySelector('[data-testid*="user-avatar"], img[alt*="avatar"], [class*="avatar"], [data-testid*="profile"]');
+          if (avatar) return { loggedIn: true };
+          return { loggedIn: true };
         }
         default:
           throw new Error('Unknown: ' + msg.action);

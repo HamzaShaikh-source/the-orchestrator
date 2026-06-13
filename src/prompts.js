@@ -30,10 +30,26 @@ function buildTaskPrompt(task, allTasks, allOutputs, goal) {
   if (doneTasks.length > 0) {
     parts.push(`## What Other Agents Have Already Completed\n${doneTasks.map(t => `- ${t.assignedTo || 'agent'}: ${t.description}`).join('\n')}\n`);
   }
-  const completedOutputContext = Object.entries(allOutputs || {})
-    .filter(([, d]) => d.status === 'done' && d.output)
-    .map(([, d]) => `### ${d.agent || d.agentId || 'Agent'}\n${String(d.output).slice(0, 2500)}`)
-    .join('\n\n');
+  let completedOutputList = Object.entries(allOutputs || {})
+    .filter(([, d]) => d.status === 'done' && d.output);
+  let completedOutputContext = '';
+  if (completedOutputList.length > 0) {
+    const estimatedBaseSize = goal.length + task.description.length + fileContext.length + 500;
+    if (estimatedBaseSize > 15000) {
+      completedOutputList = completedOutputList.slice(-2);
+      completedOutputContext = completedOutputList
+        .map(([, d]) => `### ${d.agent || d.agentId || 'Agent'}\n${String(d.output).slice(0, 2500)}`)
+        .join('\n\n');
+    } else if (estimatedBaseSize > 10000) {
+      completedOutputContext = completedOutputList
+        .map(([, d]) => `### ${d.agent || d.agentId || 'Agent'}\n${String(d.output).slice(0, 800)}${d.output.length > 800 ? '\n[summary of remaining content]' : ''}`)
+        .join('\n\n');
+    } else {
+      completedOutputContext = completedOutputList
+        .map(([, d]) => `### ${d.agent || d.agentId || 'Agent'}\n${String(d.output).slice(0, 2500)}`)
+        .join('\n\n');
+    }
+  }
   if (completedOutputContext) {
     parts.push(`## Completed Agent Outputs To Build On\n${completedOutputContext}\n`);
   }
@@ -89,7 +105,11 @@ Write the precise instruction for ${agent.name}. Start directly with the work to
     await send(tab.id, { action: 'reset' });
     await sleep(300);
 
-    let r = await send(tab.id, { action: 'inject', text: prompt });
+    let promptToSend = prompt;
+    if (promptToSend.length > 4000) {
+      promptToSend = promptToSend.slice(0, 4000) + '\n\n[instruction truncated due to length]';
+    }
+    let r = await send(tab.id, { action: 'inject', text: promptToSend });
     if (r?.error) return buildTaskPrompt(task, allTasks, agentOutputs, goal);
     await sleep(1000);
     r = await send(tab.id, { action: 'submit' });

@@ -25,14 +25,17 @@
       'button[type="submit"]',
       'div[role="button"]',
       'button:not([disabled])',
+      'button:has(svg)',
     ]);
     if (btn && btn.offsetHeight > 0) return btn;
     const input = getInput();
     if (input) {
       const area = input.closest('div, section') || input.parentElement;
       if (area) {
-        const btns = area.querySelectorAll('button:not([disabled]), div[role="button"]:not([disabled])');
-        for (const b of btns) { if (b.offsetHeight > 0) return b; }
+      const btns = area.querySelectorAll('button:not([disabled]), div[role="button"]:not([disabled])');
+      for (const b of btns) { if (b.offsetHeight > 0) return b; }
+      const lastBtn = area.querySelector('button:last-child:not([disabled])');
+      if (lastBtn && lastBtn.offsetHeight > 0) return lastBtn;
       }
     }
     const all = document.querySelectorAll('button:not([disabled])');
@@ -136,8 +139,11 @@
         }
 
         case 'checkLogin': {
-          const hasLogin = [...document.querySelectorAll('a, button')].some(el => /log in|sign in|sign up|register/i.test(el.innerText));
-          return { loggedIn: !hasLogin };
+          const hasLoginEl = [...document.querySelectorAll('a, button')].some(el => /log in|sign in|sign up|register/i.test(el.innerText));
+          if (hasLoginEl) return { loggedIn: false };
+          const avatar = document.querySelector('img[alt*="avatar"], img[alt*="profile"], [class*="avatar"], [class*="user-icon"], [data-testid*="avatar"]');
+          if (avatar) return { loggedIn: true };
+          return { loggedIn: true };
         }
 
         default: throw new Error('Unknown: ' + msg.action);

@@ -2,7 +2,7 @@
   'use strict';
 
   const S = {
-    input: ['#ask-input', 'div[contenteditable="true"]#ask-input', 'div[contenteditable="true"]'],
+    input: ['#ask-input', 'div[contenteditable="true"]#ask-input', 'div[contenteditable="true"]', 'textarea'],
     submit: ['button[aria-label="Submit"]', 'button:not([disabled])[aria-label*="Submit"]'],
     response: ['.prose', '.markdown', '[data-message-content]', '.answer-body'],
   };
@@ -63,8 +63,15 @@
         }
         case 'readDeep': {
           let best='', bestLen=0;
-          const all=document.body.querySelectorAll('div,p,section,article');
-          for(const el of all){if(el.offsetHeight===0)continue;if(el.closest('textarea')||el.closest('[class*="input"]'))continue;const t=(el.innerText||'').trim();if(t.length>bestLen&&t.length<50000){best=t;bestLen=t.length;}}
+          const proseEls = document.querySelectorAll('.prose, [data-message-content], span[data-message-content]');
+          for (const el of proseEls) {
+            const t = (el.innerText || '').trim();
+            if (t.length > bestLen && t.length < 50000) { best = t; bestLen = t.length; }
+          }
+          if (!best) {
+            const all=document.body.querySelectorAll('div,p,section,article');
+            for(const el of all){if(el.offsetHeight===0)continue;if(el.closest('textarea')||el.closest('[class*="input"]'))continue;const t=(el.innerText||'').trim();if(t.length>bestLen&&t.length<50000){best=t;bestLen=t.length;}}
+          }
           return {text: best};
         }
         case 'reset': {

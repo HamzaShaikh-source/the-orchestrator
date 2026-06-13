@@ -3,7 +3,44 @@
  * Each subtask includes a clear role and collaborator context.
  */
 
-async function planTasks(goal, usedTabs = {}) {
+function computeGoalComplexity(goal) {
+  if (!goal) return 3;
+  const techKeywords = ['build', 'app', 'website', 'api', 'database', 'auth', 'login', 'dashboard', 'portfolio', 'fullstack', 'frontend', 'backend', 'deploy', 'pipeline', 'test', 'docker', 'server', 'client', 'responsive', 'animation', 'chart', 'graph', 'real-time', 'websocket', 'search', 'filter', 'sort', 'upload', 'download', 'payment', 'stripe', 'integration'];
+  const keywordDensity = techKeywords.filter(k => goal.toLowerCase().includes(k)).length;
+  let score = 3;
+  if (goal.length > 300) score += 2;
+  else if (goal.length > 150) score += 1;
+  if (keywordDensity > 5) score += 2;
+  else if (keywordDensity > 3) score += 1;
+  return Math.min(8, Math.max(2, score));
+}
+
+const TASK_TEMPLATE_KEY = 'cachedTaskPlans';
+
+async function getCachedTaskPlan(goal) {
+  try {
+    const { [TASK_TEMPLATE_KEY]: plans } = await chrome.storage.local.get(TASK_TEMPLATE_KEY);
+    if (!plans || !Array.isArray(plans)) return null;
+    const goalLower = goal.toLowerCase();
+    for (const plan of plans) {
+      if (goalLower.includes(plan.keyword)) return JSON.parse(JSON.stringify(plan.tasks));
+    }
+  } catch {}
+  return null;
+}
+
+async function cacheTaskPlan(goal, tasks) {
+  try {
+    const { [TASK_TEMPLATE_KEY]: plans } = await chrome.storage.local.get(TASK_TEMPLATE_KEY);
+    const all = Array.isArray(plans) ? plans : [];
+    const keyword = goal.toLowerCase().split(/\s+/).slice(0, 3).join(' ');
+    all.unshift({ keyword, tasks, ts: Date.now() });
+    if (all.length > 5) all.length = 5;
+    await chrome.storage.local.set({ [TASK_TEMPLATE_KEY]: all });
+  } catch {}
+}
+
+async function planTasks(goal, usedTabs = {}, maxAgents = 4) {
   console.log('[Planner] Planning tasks for:', goal.slice(0, 120));
 
   const plannerId = 'deepseek';
@@ -12,7 +49,10 @@ async function planTasks(goal, usedTabs = {}) {
 
   const agentList = allActiveAgents().map(a => `- ${a.id}: ${a.name} (strengths: ${Object.entries(a.strengths).map(([k, v]) => `${k}=${v}`).join(', ')})`).join('\n');
 
-  const prompt = `Plan 3-5 specific subtasks for this goal. Each subtask must produce a concrete deliverable.
+  const goalComplexity = computeGoalComplexity(goal);
+  const maxTasks = maxAgents * 2;
+  const targetTaskCount = Math.min(maxTasks, Math.max(2, goalComplexity));
+  const prompt = `Plan ${targetTaskCount} specific subtasks for this goal. Each subtask must produce a concrete deliverable.
 
 For each subtask:
 - "description": what to build/create (1-2 sentences with specific output)
@@ -63,6 +103,28 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
 
   let tasks = parsePlannerTasks(raw);
 
+  /* Retry once with a fresh tab if parsing failed */
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    console.log('[Planner] First parse failed, retrying with fresh tab');
+    try { if (tab?.id) await chrome.tabs.remove(tab.id); } catch {}
+    delete usedTabs[planner.id];
+    tab = await openTab(planner.url);
+    usedTabs[planner.id] = tab;
+    await waitTab(tab.id);
+    await sleep(4000);
+    if (await waitForContentScript(tab.id)) {
+      let r = await send(tab.id, { action: 'inject', text: prompt });
+      if (!r?.error) {
+        await sleep(1000);
+        r = await send(tab.id, { action: 'submit' });
+        if (!r?.error) {
+          const raw2 = await poll(tab.id, prompt, 120);
+          tasks = parsePlannerTasks(raw2);
+        }
+      }
+    }
+  }
+
   /* If JSON parsing failed, try to fix common issues */
   if (!Array.isArray(tasks) || tasks.length === 0) {
     try {
@@ -79,6 +141,15 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
     } catch {}
   }
 
+  /* Fallback to cached templates for common goals */
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    const cached = await getCachedTaskPlan(goal);
+    if (cached) {
+      console.log('[Planner] Using cached task plan');
+      tasks = cached;
+    }
+  }
+
   if (!Array.isArray(tasks) || tasks.length === 0) {
     tasks = [
       { description: `Plan and architect the overall structure: ${goal}`, type: 'analysis' },
@@ -89,7 +160,12 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
   }
 
   tasks = normalizePlannerTasks(tasks, goal);
+  if (tasks.length > maxTasks) {
+    console.log(`[Planner] Capping ${tasks.length} tasks to max ${maxTasks}`);
+    tasks = tasks.slice(0, maxTasks);
+  }
   console.log('[Planner] Generated', tasks.length, 'tasks');
+  await cacheTaskPlan(goal, tasks);
   return tasks;
 }
 

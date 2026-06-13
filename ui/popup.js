@@ -32,8 +32,8 @@ $('run').addEventListener('click', async () => {
   isRunning = true;
   $('run').disabled = true;
   $('stop-btn').classList.remove('hidden');
-  $('ds-result').innerHTML = '<span class="placeholder">Waiting...</span>';
-  $('gpt-result').innerHTML = '<span class="placeholder">Waiting...</span>';
+  $('ds-result').innerHTML = '<span class="spinner"></span><span class="placeholder">Waiting...</span>';
+  $('gpt-result').innerHTML = '<span class="spinner"></span><span class="placeholder">Waiting...</span>';
   $('loop-results').innerHTML = '';
   $('copy-btn').style.display = 'none';
 
@@ -80,8 +80,8 @@ $('clear-btn').addEventListener('click', async () => {
   $('use-ds-url').textContent = 'Use';
   $('use-gpt-url').classList.remove('active');
   $('use-gpt-url').textContent = 'Use';
-  $('ds-result').innerHTML = '<span class="placeholder">Waiting...</span>';
-  $('gpt-result').innerHTML = '<span class="placeholder">Waiting...</span>';
+  $('ds-result').innerHTML = '<span class="spinner"></span><span class="placeholder">Waiting...</span>';
+  $('gpt-result').innerHTML = '<span class="spinner"></span><span class="placeholder">Waiting...</span>';
   $('loop-results').innerHTML = '';
   $('copy-btn').style.display = 'none';
   saveForm();
@@ -142,7 +142,7 @@ function statusText(s) {
     case 'chatgpt-inject': return 'Sending to ChatGPT...';
     case 'chatgpt-wait': return 'Waiting for ChatGPT...';
     case 'done': return 'Complete!';
-    case 'error': return 'Error: ' + readableError(s.error);
+    case 'error': return '\u26A0 Error: ' + readableError(s.error);
     case 'cancelled': return 'Cancelled';
     default: return s.step;
   }
@@ -280,12 +280,33 @@ async function clearLegacyTabIdError() {
   }
 }
 
+function loadTheme() {
+  const theme = localStorage.getItem('theme');
+  if (theme === 'light') {
+    document.body.classList.add('light');
+    $('theme-toggle').textContent = '\u2600';
+  }
+}
+
+function toggleTheme() {
+  document.body.classList.toggle('light');
+  const isLight = document.body.classList.contains('light');
+  $('theme-toggle').textContent = isLight ? '\u2600' : '\u264E';
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+}
+
 async function init() {
   await clearLegacyTabIdError();
   restoreForm();
   fetchState();
   startPoll();
   loadConvHistory();
+  loadTheme();
+  $('theme-toggle').addEventListener('click', toggleTheme);
+  $('input').addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); $('run').click(); }
+  });
+  $('input').focus();
 }
 
 init();

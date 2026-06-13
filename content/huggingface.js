@@ -2,10 +2,17 @@
   'use strict';
 
   /* HuggingChat content script (https://huggingface.co/chat/) */
+
+  /* Check for chat subdomain hostname variation */
+  const HF_HOST = window.location.hostname;
+  if (!HF_HOST.includes('huggingface') && !HF_HOST.includes('hf.co')) {
+    console.warn('[HF] Unexpected hostname:', HF_HOST);
+  }
+
   const S = {
     input: ['textarea', 'input[type="text"]', '#chat-input', '[data-testid*="input"]', 'div[contenteditable="true"]'],
     submit: ['button[type="submit"]', 'button[aria-label*="Send"]', '[data-testid*="send"]', '.run-button'],
-    response: ['.output', '.result', '.generation', '.output-area', '.result-box', '.prose', '[data-testid*="message"]', '.message'],
+    response: ['.output', '.result', '.generation', '.output-area', '.result-box', '.prose', '[data-testid*="message"]', '.message', '.message-bot'],
   };
 
   function $(sel) {
