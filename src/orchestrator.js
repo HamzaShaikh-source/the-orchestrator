@@ -199,7 +199,9 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
       r = await send(tab.id, { action: 'submit' });
       if (r?.error) throw new Error(`submit: ${r.error}`);
 
-      const specialistOutput = await pollWithProgress(tab.id, task.description, 120, outputKey, agentOutputs, agent.id);
+      /* Code/creative/writing tasks need more patience */
+      const pollSeconds = ['code', 'creative', 'writing'].includes(task.type) ? 300 : 120;
+      const specialistOutput = await pollWithProgress(tab.id, task.description, pollSeconds, outputKey, agentOutputs, agent.id);
       if (multiCancelled) throw new CancelError();
 
       if (!specialistOutput || specialistOutput === '\u26a0\ufe0f Timeout') {
@@ -228,16 +230,7 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
   }
 
   const errorInfo = friendlyError(lastError, agent.name);
-  const friendly = errorInfo.message;
-  if (errorInfo.retryable && (task.retryCount || 0) < 2) {
-    chrome.runtime.sendMessage({
-      action: 'autoRetryTask',
-      retryCount: task.retryCount || 0,
-      taskIdx: tasks.indexOf(task),
-    });
-    return;
-  }
-  agentOutputs[outputKey] = { output: '', status: 'error', error: friendly, task: task.description, agent: agent.name, agentId: agent.id };
+  agentOutputs[outputKey] = { output: '', status: 'error', error: errorInfo.message, task: task.description, agent: agent.name, agentId: agent.id };
   task.status = 'error';
   await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs } });
   await recordAgentResult(agent.id, false);
@@ -392,28 +385,42 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
     }
     if (multiCancelled) throw new CancelError();
 
-    /* ── 3. Execute: ALL tasks in PARALLEL ── */
+    /* ── 3. Execute: SEQUENTIAL per agent (parallel across agents) ── */
     const agentOutputs = {};
     await setMultiState({ tasks: [...tasks], step: 'running' });
 
-    const allTaskPromises = tasks.map(async (task, taskIndex) => {
-      if (multiCancelled) throw new CancelError();
-      const agent = getAgent(task.assignedTo);
-      if (!agent) { task.status = 'error'; return; }
+    /* Group tasks by assigned agent so we never open two tabs for the same
+     * agent simultaneously. This avoids rate-limit conflicts and cross-tab
+     * interference (especially for slower code-generation tasks). */
+    const tasksByAgent = {};
+    tasks.forEach((task, taskIndex) => {
+      const agentId = task.assignedTo || 'unknown';
+      if (!tasksByAgent[agentId]) tasksByAgent[agentId] = [];
+      tasksByAgent[agentId].push({ task, taskIndex });
+    });
 
-      task.status = 'in-progress';
-      await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
+    const agentPromises = Object.entries(tasksByAgent).map(async ([agentId, agentTasks]) => {
+      const agent = getAgent(agentId);
+      if (!agent) {
+        agentTasks.forEach(({ task }) => { task.status = 'error'; });
+        return;
+      }
+      for (const { task, taskIndex } of agentTasks) {
+        if (multiCancelled) throw new CancelError();
+        task.status = 'in-progress';
+        await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
 
-      try {
-        const taskKey = `${agent.id}-${taskIndex}`;
-        await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, taskKey, settings);
-      } catch (err) {
-        if (err instanceof CancelError) throw err;
-        task.status = 'error';
+        try {
+          const taskKey = `${agent.id}-${taskIndex}`;
+          await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, taskKey, settings);
+        } catch (err) {
+          if (err instanceof CancelError) throw err;
+          task.status = 'error';
+        }
       }
     });
 
-    await Promise.all(allTaskPromises);
+    await Promise.all(agentPromises);
     if (multiCancelled) throw new CancelError();
 
     /* ── 4. Final brain synthesis ── */
