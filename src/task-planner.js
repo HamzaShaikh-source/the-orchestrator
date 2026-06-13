@@ -74,7 +74,7 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
 
   let tab = usedTabs[planner.id];
   if (!tab || !await tabAlive(tab.id)) {
-    tab = await openTab(planner.url);
+    tab = await openHiddenTab(planner.url);
     usedTabs[planner.id] = tab;
     await waitTab(tab.id);
     await sleep(4000);
@@ -83,7 +83,7 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
   if (!(await waitForContentScript(tab.id))) {
     console.warn(`[Planner] Content script not detected on existing ${planner.name} tab, opening fresh tab`);
     try { await chrome.tabs.remove(tab.id); } catch {}
-    tab = await openTab(planner.url);
+    tab = await openHiddenTab(planner.url);
     usedTabs[planner.id] = tab;
     await waitTab(tab.id);
     await sleep(4000);
@@ -108,7 +108,7 @@ Output format: [{"description": "Build X that does Y...", "type": "code"}, ...]`
     console.log('[Planner] First parse failed, retrying with fresh tab');
     try { if (tab?.id) await chrome.tabs.remove(tab.id); } catch {}
     delete usedTabs[planner.id];
-    tab = await openTab(planner.url);
+    tab = await openHiddenTab(planner.url);
     usedTabs[planner.id] = tab;
     await waitTab(tab.id);
     await sleep(4000);

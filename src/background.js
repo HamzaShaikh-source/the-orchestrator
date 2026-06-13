@@ -287,10 +287,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       run(msg.prompt, msg.task, msg.loopCount || 3, msg.manualDS || '', msg.manualGPT || '');
       return { ok: true };
     },
-    stop: () => { cancelled = true; addPipelineLog('Pipeline stopped'); setState({ step: 'cancelled', error: null }); return true; },
+    stop: () => { cancelled = true; addPipelineLog('Pipeline stopped'); setState({ step: 'cancelled', error: null }); return { ok: true }; },
     status: () => { getState().then(sendResponse); return true; },
     getConvHistory: () => { getConvHistory().then(sendResponse); return true; },
-    clearState: () => { cancelled = true; running = false; pipelineGen++; chrome.storage.session.set({ state: { ...DEFAULT_STATE } }).then(() => sendResponse({ ok: true })); return true; },
+    clearState: () => { cancelled = true; running = false; pipelineGen++; chrome.storage.session.set({ state: { ...DEFAULT_STATE } }).then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: true })); return true; },
     multiStatus: () => { getMultiState().then(sendResponse); return true; },
     stopMulti: () => { multiCancelled = true; setMultiState({ step: 'cancelled', error: null }); return { ok: true }; },
     getAgentConvs: () => { chrome.storage.local.get('agentConvs').then(({ agentConvs }) => sendResponse(agentConvs || {})); return true; },
@@ -306,8 +306,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     deleteChat: () => { deleteChat(msg.chatId).then(() => sendResponse({ ok: true })); return true; },
     confirmTasks: () => { setMultiState({ tasksConfirmed: true }); return { ok: true }; },
     rejectTasks: () => { setMultiState({ tasksConfirmed: false }); return { ok: true }; },
-    retryTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'pending'; setMultiState({ tasks: [...tasks], step: 'running' }); }}); return true; },
-    skipTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'skipped'; setMultiState({ tasks: [...tasks] }); }}); return true; },
+    retryTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'pending'; /* Re-trigger execution — fire-and-forget, caller polls for status */ setMultiState({ tasks: [...tasks], step: 'running' }); }}); return { ok: true }; },
+    skipTask: () => { getMultiState().then(s => { const tasks = s.tasks || []; if (msg.taskIndex >= 0 && msg.taskIndex < tasks.length) { tasks[msg.taskIndex].status = 'skipped'; setMultiState({ tasks: [...tasks] }); }}); return { ok: true }; },
     checkUpdate: () => { addPipelineLog('Checking for update'); checkForUpdate().then(sendResponse); return true; },
     downloadUpdate: () => { addPipelineLog('Downloading update'); downloadLatestUpdate().then(sendResponse); return true; },
     acknowledgeUpdate: () => { acknowledgeUpdate(msg.sha).then(() => sendResponse({ ok: true })); return true; },

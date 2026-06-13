@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "The Orchestrator",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Multi-agent AI orchestration — coordinate DeepSeek, ChatGPT, Gemini, Perplexity, HuggingFace. No API keys needed.",
   "permissions": ["tabs", "storage", "downloads"],
   "host_permissions": [

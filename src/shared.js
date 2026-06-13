@@ -143,11 +143,11 @@ async function pokeTab(tabId) {
 async function cleanupHiddenWindow() {
   if (_offScreenWindowId) {
     try {
-      const tabs = await chrome.tabs.query({ windowId: _offScreenWindowId });
-      for (const t of tabs) {
-        if (t.id && !t.url?.startsWith('about:blank')) await chrome.tabs.remove(t.id).catch(() => {});
-      }
+      /* Wait a moment for any pending tab operations, then close the whole window */
+      await sleep(500);
+      await chrome.windows.remove(_offScreenWindowId).catch(() => {});
     } catch { /* window may already be gone */ }
+    _offScreenWindowId = null;
   }
   _hiddenTabs.clear();
   hiddenWindowReady = false;

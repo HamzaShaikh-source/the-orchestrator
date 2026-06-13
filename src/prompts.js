@@ -67,6 +67,11 @@ function buildTaskPrompt(task, allTasks, allOutputs, goal) {
   return parts.join('\n---\n');
 }
 
+/* ── INTENTIONALLY UNUSED ──
+ * Kept for reference/debugging. buildTaskPrompt() replaced this approach
+ * because feeding specialist summaries through a brain write step caused
+ * response contamination (planner JSON leaking into specialist instructions).
+ * The direct buildTaskPrompt() produces cleaner, more reliable output. */
 async function brainWriteTaskPrompt(task, agent, allTasks, agentOutputs, goal, usedTabs, projectFiles = {}) {
   const brain = getAgent(BRAIN_ID);
   if (!brain) return buildTaskPrompt(task, allTasks, agentOutputs, goal);
