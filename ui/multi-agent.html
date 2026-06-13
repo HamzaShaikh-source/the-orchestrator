@@ -557,6 +557,14 @@
         <div class="setting-row"><span>Browser notification</span><div class="toggle-switch on" id="setting-notification"></div></div>
         <div class="setting-row"><span>Auto-scroll to files</span><div class="toggle-switch on" id="setting-autoscroll"></div></div>
       </div>
+      <div class="setting-group"><label>Updates</label>
+        <div class="setting-row"><span>Auto-update from GitHub</span><div class="toggle-switch on" id="setting-auto-update"></div></div>
+        <div class="setting-row"><span>Status</span><span id="update-status-text" style="font-size:0.8rem;color:var(--text-muted)">Checking…</span></div>
+        <div class="setting-row"><span>Last check</span><span id="last-update-check" style="font-size:0.8rem;color:var(--text-muted)">—</span></div>
+        <div class="setting-row" id="update-now-row" style="display:none">
+          <button id="update-now-btn" style="background:none;border:1px solid var(--accent);border-radius:40px;padding:8px 16px;color:var(--accent);font-weight:600;cursor:pointer;font-size:0.8rem">Check &amp; update now</button>
+        </div>
+      </div>
       <div class="setting-group"><label>Display</label>
         <div class="setting-row"><span>Task animation delay</span><input type="range" id="setting-anim-speed" min="0" max="300" value="100"></div>
       </div>

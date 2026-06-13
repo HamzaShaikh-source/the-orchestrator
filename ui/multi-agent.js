@@ -16,7 +16,7 @@ let portReconnectTimer = null;
 
 /* ── Settings ── */
 const SETTINGS_KEY = 'orchestratorSettings';
-const DEFAULT_SETTINGS = { retries:2, maxAgents:4, pollMs:1000, sound:true, notification:true, autoscroll:true, animSpeed:100 };
+const DEFAULT_SETTINGS = { retries:2, maxAgents:4, pollMs:1000, sound:true, notification:true, autoscroll:true, animSpeed:100, autoUpdate:true };
 let settings = { ...DEFAULT_SETTINGS };
 const SETTING_CONTROL_KEYS = {
   retries: 'retries',
@@ -937,7 +937,43 @@ function showSaveIndicator() {
 function initSettings() {
   loadSettings(); applySettingsUI();
   const bindToggle=(id,key)=>{const el=document.getElementById(id);if(!el)return;el.addEventListener('click',()=>{settings[key]=!settings[key];el.classList.toggle('on');saveSettings();showSaveIndicator();});};
-  bindToggle('setting-sound','sound'); bindToggle('setting-notification','notification'); bindToggle('setting-autoscroll','autoscroll');
+  bindToggle('setting-sound','sound'); bindToggle('setting-notification','notification'); bindToggle('setting-autoscroll','autoscroll'); bindToggle('setting-auto-update','autoUpdate');
+
+  /* Auto-update toggle syncs with background */
+  const autoUpdateToggle = document.getElementById('setting-auto-update');
+  if (autoUpdateToggle) {
+    autoUpdateToggle.addEventListener('click', () => {
+      const enabled = autoUpdateToggle.classList.contains('on');
+      chrome.runtime.sendMessage({ action: 'setAutoUpdate', enabled }).catch(() => {});
+    });
+  }
+
+  /* Check & update now button */
+  $('#update-now-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('update-now-btn');
+    btn.textContent = '⏳ Checking…'; btn.disabled = true;
+    try {
+      const r = await chrome.runtime.sendMessage({ action: 'performAutoUpdate' });
+      if (r?.status === 'reloading') {
+        showToast('🔄 Update downloaded, reloading…', 'success');
+      } else if (r?.status === 'up_to_date') {
+        showToast('✓ Already up to date', 'success');
+      } else if (r?.status === 'updated') {
+        showToast(`✅ Updated (${r.sha?.slice(0,8)})`, 'success');
+      } else if (r?.error) {
+        showToast(`❌ ${r.error}`, 'error');
+      }
+    } catch (err) {
+      showToast(`❌ ${err.message}`, 'error');
+    } finally {
+      btn.textContent = 'Check & update now'; btn.disabled = false;
+    }
+    refreshUpdateStatus();
+  });
+
+  /* Refresh update status periodically */
+  refreshUpdateStatus();
+  setInterval(refreshUpdateStatus, 60000);
   ['retries','max-agents','poll-ms','anim-speed'].forEach(k=>{
     const el=document.getElementById(`setting-${k}`); if(!el) return;
     const handler = () => {
@@ -1089,6 +1125,29 @@ document.getElementById('importFileInput')?.addEventListener('change', (e) => { 
 /* ── Auto-update ── */
 let _updateSha = '', _updateMsg = '';
 let _updating = false;
+
+async function refreshUpdateStatus() {
+  try {
+    const r = await chrome.runtime.sendMessage({ action: 'getUpdateStatus' });
+    const statusEl = document.getElementById('update-status-text');
+    const lastCheckEl = document.getElementById('last-update-check');
+    const nowRow = document.getElementById('update-now-row');
+    if (statusEl) {
+      if (r?.running) statusEl.textContent = '🔄 Auto-updating…';
+      else statusEl.textContent = r?.applied ? '✅ Updated' : (r?.pending ? '⬇ Update pending — will apply on reload' : '🟢 Active (hourly)');
+    }
+    if (lastCheckEl && r?.timestamp) {
+      const diff = Math.floor((Date.now() - r.timestamp) / 60000);
+      lastCheckEl.textContent = diff < 1 ? 'Just now' : `${diff}m ago`;
+    }
+    if (nowRow) nowRow.style.display = '';
+    /* Update the update-btn visibility */
+    if (r?.pending && !r?.applied) {
+      const btn = document.getElementById('update-btn');
+      if (btn) { btn.style.display = ''; btn.title = 'Update pending'; }
+    }
+  } catch {}
+}
 
 async function checkUpdate() {
   try {

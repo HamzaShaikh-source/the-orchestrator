@@ -41,11 +41,25 @@ const GITHUB_REPO = 'HamzaShaikh-source/the-orchestrator';
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/commits/main`;
 const GITHUB_ZIP = `https://github.com/${GITHUB_REPO}/archive/main.zip`;
 const UPDATE_CHECK_KEY = 'lastUpdateSha';
+const AUTO_UPDATE_INTERVAL = 3600000; // 1 hour
 let _lastUpdateCheck = 0;
+let _autoUpdateTimer = null;
+let _updateInProgress = false;
 
-async function checkForUpdate() {
+/* Files that can be hot-updated at runtime */
+const HOT_UPDATE_FILES = [
+  'src/shared.js', 'src/agents.js', 'src/prompts.js',
+  'src/task-planner.js', 'src/task-router.js', 'src/orchestrator.js',
+  'ui/multi-agent.js', 'ui/popup.js'
+];
+const CONTENT_SCRIPT_FILES = [
+  'content/deepseek.js', 'content/chatgpt.js', 'content/gemini.js',
+  'content/perplexity.js', 'content/huggingface.js'
+];
+
+async function checkForUpdate(force) {
   const now = Date.now();
-  if (now - _lastUpdateCheck < 300000) {
+  if (!force && now - _lastUpdateCheck < 300000) {
     return { available: false, cached: true };
   }
   _lastUpdateCheck = now;
@@ -55,10 +69,8 @@ async function checkForUpdate() {
     const data = await res.json();
     const latestSha = data.sha || '';
     if (!latestSha) return { available: false, error: 'No SHA returned' };
-    /* Get the stored SHA */
     const { [UPDATE_CHECK_KEY]: storedSha } = await chrome.storage.local.get(UPDATE_CHECK_KEY);
     const available = latestSha !== storedSha;
-    /* Get last commit message for display */
     const message = data.commit?.message?.split('\n')[0] || 'New update available';
     return { available, latestSha, message, currentVersion: chrome.runtime.getManifest().version };
   } catch (err) {
@@ -68,7 +80,6 @@ async function checkForUpdate() {
 
 async function downloadLatestUpdate() {
   try {
-    /* Download ZIP via chrome.downloads API — fixed filename so it overwrites each time */
     const downloadId = await new Promise((resolve, reject) => {
       chrome.downloads.download({
         url: GITHUB_ZIP,
@@ -80,7 +91,6 @@ async function downloadLatestUpdate() {
         else resolve(id);
       });
     });
-    /* Wait for download to complete, then get the file path */
     const path = await new Promise((resolve) => {
       const handler = (delta) => {
         if (delta.id === downloadId && delta.state?.current === 'complete') {
@@ -91,7 +101,6 @@ async function downloadLatestUpdate() {
         }
       };
       chrome.downloads.onChanged.addListener(handler);
-      /* Timeout fallback */
       setTimeout(() => { chrome.downloads.onChanged.removeListener(handler); resolve(''); }, 30000);
     });
     return { success: true, downloadId, path, message: 'Downloaded!' };
@@ -100,9 +109,242 @@ async function downloadLatestUpdate() {
   }
 }
 
-/* After successful check, store the SHA to suppress re-notification */
 async function acknowledgeUpdate(sha) {
   await chrome.storage.local.set({ [UPDATE_CHECK_KEY]: sha });
+}
+
+/* ── Fetch raw file content from GitHub ── */
+async function fetchRawFromGitHub(filePath) {
+  const url = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/${filePath}`;
+  const res = await fetch(url, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(`Failed to fetch ${filePath}: ${res.status}`);
+  return res.text();
+}
+
+/* ── Cache updated file contents in chrome.storage.local ── */
+async function cacheUpdatedFiles(latestSha, changedFiles) {
+  const cache = {};
+  const filesToFetch = [...HOT_UPDATE_FILES, ...CONTENT_SCRIPT_FILES]
+    .filter(f => !changedFiles || changedFiles.length === 0 || changedFiles.includes(f));
+  
+  for (const file of filesToFetch) {
+    try {
+      const content = await fetchRawFromGitHub(file);
+      cache[file] = content;
+    } catch (err) {
+      console.warn(`[AutoUpdate] Could not fetch ${file}: ${err.message}`);
+    }
+  }
+  
+  if (Object.keys(cache).length > 0) {
+    await chrome.storage.local.set({
+      _updateCache: cache,
+      _updateSha: latestSha,
+      _updateTimestamp: Date.now()
+    });
+  }
+  return cache;
+}
+
+/* ── Hot-update content scripts from cached content ── */
+async function hotUpdateContentScripts(cache) {
+  if (!cache || Object.keys(cache).length === 0) return { updated: 0 };
+  
+  const contentScripts = Object.entries(cache).filter(([path]) =>
+    path.startsWith('content/') && path.endsWith('.js')
+  );
+  
+  if (contentScripts.length === 0) return { updated: 0 };
+  
+  try {
+    /* Unregister all existing dynamically registered content scripts */
+    await chrome.scripting.unregisterContentScripts();
+    
+    /* Register updated content scripts */
+    const scripts = contentScripts.map(([path, code]) => {
+      const matches = pathToMatches(path);
+      if (!matches) return null;
+      return {
+        id: `autoupdate_${path.replace(/[\/.]/g, '_')}`,
+        matches,
+        js: [{ code }],
+        runAt: 'document_end',
+        world: 'MAIN'
+      };
+    }).filter(Boolean);
+    
+    if (scripts.length > 0) {
+      await chrome.scripting.registerContentScripts(scripts);
+    }
+    return { updated: contentScripts.length };
+  } catch (err) {
+    console.error('[AutoUpdate] Content script hot-update failed:', err);
+    return { updated: 0, error: err.message };
+  }
+}
+
+function pathToMatches(path) {
+  const map = {
+    'content/deepseek.js': ['https://chat.deepseek.com/*'],
+    'content/chatgpt.js': ['https://chatgpt.com/*'],
+    'content/gemini.js': ['https://gemini.google.com/*'],
+    'content/perplexity.js': ['https://www.perplexity.ai/*'],
+    'content/huggingface.js': ['https://huggingface.co/*'],
+  };
+  return map[path] || null;
+}
+
+/* ── Hot-update imported background functions from cached code ── */
+async function hotUpdateImports(cache) {
+  if (!cache || Object.keys(cache).length === 0) return { updated: 0 };
+  
+  const importFiles = Object.entries(cache).filter(([path]) =>
+    path.startsWith('src/') && path.endsWith('.js') && path !== 'src/background.js'
+  );
+  
+  /* We can't truly hot-replace importScripts code in the service worker
+     because importScripts run at module scope. But we can notify the
+     pipeline that new code is cached for next reload. */
+  return { updated: importFiles.length, note: 'Cached for next reload — hot-reload not possible for service worker imports' };
+}
+
+/* ── Apply cached update to content scripts on restart ── */
+async function applyCachedUpdateOnRestart() {
+  try {
+    const { _updateCache, _updateSha, _updateApplied } = await chrome.storage.local.get([
+      '_updateCache', '_updateSha', '_updateApplied'
+    ]);
+    
+    if (_updateCache && _updateSha && !_updateApplied) {
+      console.log(`[AutoUpdate] Applying cached update ${_updateSha.slice(0, 8)}`);
+      
+      /* Hot-update content scripts */
+      const csResult = await hotUpdateContentScripts(_updateCache);
+      
+      /* Mark as applied so we don't re-apply on every restart */
+      await chrome.storage.local.set({ _updateApplied: true, _updateAppliedAt: Date.now() });
+      
+      addPipelineLog(`✅ Auto-updated: ${_updateSha.slice(0, 8)} (${csResult.updated} content scripts)`);
+      return { sha: _updateSha, contentScriptsUpdated: csResult.updated };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[AutoUpdate] applyCachedUpdateOnRestart:', err.message);
+    return null;
+  }
+}
+
+/* ── Full auto-update flow ── */
+async function performAutoUpdate() {
+  if (_updateInProgress) return { status: 'already_running' };
+  _updateInProgress = true;
+  
+  try {
+    addPipelineLog('🔄 Checking for updates…');
+    const update = await checkForUpdate(true);
+    
+    if (!update.available) {
+      addPipelineLog('✓ Already up to date');
+      return { status: 'up_to_date' };
+    }
+    
+    addPipelineLog(`⬇ Update found: ${update.message}`);
+    
+    /* Step 1: Cache updated file contents */
+    const cache = await cacheUpdatedFiles(update.latestSha);
+    addPipelineLog(`📦 Cached ${Object.keys(cache).length} files`);
+    
+    /* Step 2: Hot-update content scripts (instant, no reload needed) */
+    const csResult = await hotUpdateContentScripts(cache);
+    if (csResult.updated > 0) {
+      addPipelineLog(`⚡ Hot-updated ${csResult.updated} content scripts`);
+    }
+    
+    /* Step 3: Download ZIP for manual extraction */
+    const dlResult = await downloadLatestUpdate();
+    
+    /* Step 4: Auto-reload if background imports changed */
+    const importFiles = Object.keys(cache).filter(f => f.startsWith('src/') && f !== 'src/background.js');
+    const needsReload = importFiles.length > 0 || update.latestSha !== (await chrome.storage.local.get(UPDATE_CHECK_KEY))[UPDATE_CHECK_KEY];
+    
+    if (needsReload) {
+      /* Store SHA so next restart knows update happened */
+      await chrome.storage.local.set({
+        _updatePending: true,
+        _updateApplied: false, /* Reset so applyCachedUpdateOnRestart works */
+        [UPDATE_CHECK_KEY]: update.latestSha
+      });
+      
+      addPipelineLog('🔄 Auto-reloading extension in 3s…');
+      
+      /* Schedule reload — this will pick up cached content scripts on restart */
+      setTimeout(() => {
+        chrome.runtime.reload();
+      }, 3000);
+      
+      return {
+        status: 'reloading',
+        sha: update.latestSha,
+        message: update.message,
+        csUpdated: csResult.updated,
+        cachedFiles: Object.keys(cache).length,
+        downloaded: dlResult.success
+      };
+    }
+    
+    return {
+      status: 'updated',
+      sha: update.latestSha,
+      message: update.message,
+      csUpdated: csResult.updated,
+      downloaded: dlResult.success
+    };
+  } catch (err) {
+    console.error('[AutoUpdate] Failed:', err);
+    addPipelineLog(`❌ Auto-update failed: ${err.message}`);
+    return { status: 'error', error: err.message };
+  } finally {
+    _updateInProgress = false;
+  }
+}
+
+/* ── Background auto-update scheduler ── */
+async function startAutoUpdate() {
+  stopAutoUpdate();
+  
+  /* Apply any cached update from a prior reload first */
+  await applyCachedUpdateOnRestart();
+  
+  /* Check immediately on startup */
+  performAutoUpdate().catch(() => {});
+  
+  /* Then check every hour */
+  _autoUpdateTimer = setInterval(() => {
+    performAutoUpdate().catch(() => {});
+  }, AUTO_UPDATE_INTERVAL);
+  
+  console.log('[AutoUpdate] Started (every 1h)');
+}
+
+function stopAutoUpdate() {
+  if (_autoUpdateTimer) {
+    clearInterval(_autoUpdateTimer);
+    _autoUpdateTimer = null;
+  }
+}
+
+/* ── Get auto-update status for the UI ── */
+async function getAutoUpdateStatus() {
+  const { _updatePending, _updateSha, _updateTimestamp, _updateApplied } = await chrome.storage.local.get([
+    '_updatePending', '_updateSha', '_updateTimestamp', '_updateApplied'
+  ]);
+  return {
+    pending: !!_updatePending,
+    sha: _updateSha || '',
+    timestamp: _updateTimestamp || 0,
+    applied: !!_updateApplied,
+    running: _updateInProgress
+  };
 }
 
 const AGENT_DOMAINS = [
@@ -147,6 +389,8 @@ function stopBgKeepalive() {
   if (bgKeepaliveTimer) { clearInterval(bgKeepaliveTimer); bgKeepaliveTimer = null; }
 }
 startBgKeepalive();
+/* Start auto-update system (checks hourly, hot-updates content scripts) */
+startAutoUpdate();
 
 /* ── Single-agent pipeline (legacy) ── */
 async function saveConv(entry) {
@@ -355,6 +599,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     openDownloads: () => { chrome.downloads.showDefaultFolder(); sendResponse({ ok: true }); return true; },
     openExtensions: () => { chrome.tabs.create({ url: 'chrome://extensions', active: true }); sendResponse({ ok: true }); return true; },
     getPipelineLog: () => { sendResponse([...pipelineLog]); return true; },
+    /* Auto-update handlers */
+    performAutoUpdate: () => { performAutoUpdate().then(sendResponse); return true; },
+    getUpdateStatus: () => { getAutoUpdateStatus().then(sendResponse); return true; },
+    setAutoUpdate: () => {
+      chrome.storage.local.set({ autoUpdateEnabled: msg.enabled }).then(() => {
+        if (msg.enabled) startAutoUpdate(); else stopAutoUpdate();
+        sendResponse({ ok: true });
+      });
+      return true;
+    },
+    startAutoUpdateNow: () => { startAutoUpdate(); sendResponse({ ok: true }); return true; },
   };
 
   const handler = handlers[msg.action];

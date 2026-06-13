@@ -3,7 +3,7 @@
   "name": "The Orchestrator",
   "version": "2.2.0",
   "description": "Multi-agent AI orchestration — coordinate DeepSeek, ChatGPT, Gemini, Perplexity, HuggingFace. No API keys needed.",
-  "permissions": ["tabs", "storage", "downloads"],
+  "permissions": ["tabs", "storage", "downloads", "scripting"],
   "host_permissions": [
     "https://chat.deepseek.com/*",
     "https://chatgpt.com/*",
