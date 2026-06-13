@@ -179,6 +179,12 @@ async function runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOut
         throw new Error('content_script_not_detected');
       }
 
+      /* Reset the baseline before injecting — this is critical when reusing
+       * the same tab across sequential tasks for the same agent. Without a
+       * reset, readResponse would return stale content from the previous task's
+       * response, causing pollWithProgress to return garbage immediately. */
+      await send(tab.id, { action: 'reset' });
+
       /* Build instruction directly — no brainWriteTaskPrompt.
        * The brain write step was causing response contamination (planner JSON
        * leaking into specialist instructions). buildTaskPrompt produces clean,
@@ -411,8 +417,10 @@ async function runMulti(goal, manualUrls = {}, selectedAgents = null, chatId = n
         await setMultiState({ tasks: [...tasks], agentOutputs: { ...agentOutputs }, brainPhase: `${agent.name} starting...` });
 
         try {
-          const taskKey = `${agent.id}-${taskIndex}`;
-          await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, taskKey, settings);
+          /* Use agent.id as the taskKey so sequential tasks for the same agent
+           * reuse the same tab (ensureTab looks up usedTabs[agent.id]). The old
+           * agent.id-taskIndex pattern opened a new tab for every task. */
+          await runTaskOnAgent(task, agent, usedTabs, manualUrls, tasks, agentOutputs, agentOutputs, goal, projectFiles, agent.id, settings);
         } catch (err) {
           if (err instanceof CancelError) throw err;
           task.status = 'error';
