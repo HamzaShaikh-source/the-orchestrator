@@ -956,7 +956,12 @@ function initSettings() {
     try {
       const r = await chrome.runtime.sendMessage({ action: 'performAutoUpdate' });
       if (r?.status === 'downloaded' || r?.status === 'updated') {
-        showToast(`✅ Update downloaded — extract ZIP over extension folder (${r.sha?.slice(0,8)})`, 'success');
+        showToast(`✅ Update downloaded (${r.sha?.slice(0,8)})`, 'success');
+        /* Open the update panel in post-download mode */
+        _updateSha = r.sha;
+        _updateMsg = r.message || 'Update downloaded';
+        toggleUpdatePanel(true);
+        showPostDownloadState();
       } else if (r?.status === 'up_to_date') {
         showToast('✓ Already up to date', 'success');
       } else if (r?.error) {
@@ -1131,15 +1136,22 @@ async function refreshUpdateStatus() {
     const statusEl = document.getElementById('update-status-text');
     const lastCheckEl = document.getElementById('last-update-check');
     const nowRow = document.getElementById('update-now-row');
+    const actionsRow = document.getElementById('update-actions-row');
     if (statusEl) {
       if (r?.running) statusEl.textContent = '🔄 Auto-updating…';
-      else statusEl.textContent = r?.applied ? '✅ Update acknowledged' : (r?.pending ? '⬇ Update ready — extract ZIP & reload' : '🟢 Active (hourly)');
+      else if (r?.applied) statusEl.textContent = '✅ Update acknowledged';
+      else if (r?.pending) statusEl.textContent = '⬇ Update ready — extract ZIP & reload';
+      else statusEl.textContent = '🟢 Active (hourly)';
     }
     if (lastCheckEl && r?.timestamp) {
       const diff = Math.floor((Date.now() - r.timestamp) / 60000);
       lastCheckEl.textContent = diff < 1 ? 'Just now' : `${diff}m ago`;
     }
     if (nowRow) nowRow.style.display = '';
+    /* Show/hide action buttons based on pending update state */
+    if (actionsRow) {
+      actionsRow.style.display = (r?.pending && !r?.applied) ? 'flex' : 'none';
+    }
     /* Update the update-btn visibility */
     if (r?.pending && !r?.applied) {
       const btn = document.getElementById('update-btn');
@@ -1196,15 +1208,7 @@ async function doUpdate() {
     if (r?.success) {
       if (progFill) progFill.style.width = '100%';
       if (progText) progText.textContent = '✅ Downloaded!';
-      /* Show step-by-step with helper buttons */
-      ['update-instructions','update-reload-btn','update-open-folder','update-open-ext'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.style.display = '';
-      });
-      if (_updateSha) {
-        await chrome.runtime.sendMessage({ action: 'acknowledgeUpdate', sha: _updateSha });
-        const btn = document.getElementById('update-btn');
-        if (btn) btn.style.display = 'none';
-      }
+      await showPostDownloadState();
     } else {
       throw new Error(r?.error || 'Download failed');
     }
@@ -1213,6 +1217,18 @@ async function doUpdate() {
     if (dlBtn) { dlBtn.style.display = ''; dlBtn.textContent = '⬇ Retry'; }
   }
   _updating = false;
+}
+
+async function showPostDownloadState() {
+  /* Show step-by-step with helper buttons */
+  ['update-instructions','update-reload-btn','update-open-folder','update-open-ext'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = '';
+  });
+  if (_updateSha) {
+    await chrome.runtime.sendMessage({ action: 'acknowledgeUpdate', sha: _updateSha });
+    const btn = document.getElementById('update-btn');
+    if (btn) btn.style.display = 'none';
+  }
 }
 
 function reloadExtension() {
@@ -1239,6 +1255,17 @@ $('#update-skip-btn')?.addEventListener('click', () => {
   if (_updateSha) chrome.runtime.sendMessage({ action: 'acknowledgeUpdate', sha: _updateSha });
   const btn = document.getElementById('update-btn');
   if (btn) btn.style.display = 'none';
+});
+
+/* Inline settings panel action buttons */
+$('#update-open-dl-btn')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'openDownloads' });
+});
+$('#update-open-ext-btn')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'openExtensions' });
+});
+$('#update-do-reload-btn')?.addEventListener('click', () => {
+  reloadExtension();
 });
 
 /* ── Utilities ── */

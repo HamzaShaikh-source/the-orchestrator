@@ -86,6 +86,7 @@ async function downloadLatestUpdate() {
         filename: 'the-orchestrator-update.zip',
         saveAs: false,
         conflictAction: 'overwrite',
+        openWhenDone: false, /* user clicks "Open Downloads" to locate it */
       }, (id) => {
         if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
         else resolve(id);
@@ -238,7 +239,8 @@ async function performAutoUpdate() {
       addPipelineLog(`❌ Download failed: ${dlResult.error}`);
       return { status: 'error', error: dlResult.error };
     }
-    addPipelineLog('✅ Update ZIP downloaded');
+    addPipelineLog(`✅ Update ZIP downloaded to: ${dlResult.path}`);
+    addPipelineLog('📋 Important: unpacked extensions need manual update — extract ZIP over extension folder, then reload');
     
     /* Step 3: Mark update as pending */
     await chrome.storage.local.set({
@@ -249,7 +251,7 @@ async function performAutoUpdate() {
       [UPDATE_CHECK_KEY]: update.latestSha
     });
     
-    addPipelineLog('📋 Extract the ZIP over your extension folder, then click Reload');
+    addPipelineLog('📋 Extract the ZIP over your extension folder, then click Reload on chrome://extensions');
     
     return {
       status: 'downloaded',
