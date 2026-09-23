@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Orchestrator</title>
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<header class="topbar">
+  <span class="app-name">The Orchestrator</span>
+  <span id="status-pill" class="pill idle" role="status" aria-live="polite">
+    <span class="dot"></span><span id="status-pill-text">Idle</span>
+  </span>
+  <div class="topbar-actions">
+    <button id="connectors-toggle" class="btn ghost" aria-label="Open connectors panel" aria-expanded="false">Connectors</button>
+    <button id="cancel-btn" class="btn danger hidden" aria-label="Cancel current run">Cancel</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside id="sidebar" class="sidebar" aria-label="Sidebar">
+    <section class="side-section">
+      <h2 class="section-title">Agents</h2>
+      <div id="agent-list"></div>
+    </section>
+    <section class="side-section">
+      <h2 class="section-title">Providers</h2>
+      <div id="provider-list"></div>
+    </section>
+    <section class="side-section">
+      <h2 class="section-title">Connectors</h2>
+      <div id="connector-list"></div>
+    </section>
+  </aside>
+
+  <main class="main">
+    <section class="panel composer" aria-label="Goal composer">
+      <textarea id="goal" rows="3" placeholder="Describe your goal — e.g. Build a landing page with pricing table and FAQ" aria-label="Goal"></textarea>
+      <div class="composer-row">
+        <div id="agent-chips" class="chips" role="group" aria-label="Select agents"></div>
+        <button id="run-btn" class="btn accent">Run</button>
+      </div>
+    </section>
+
+    <div class="mid-grid">
+      <section class="panel board" aria-label="Task board">
+        <h2 class="panel-title">Tasks</h2>
+        <div id="task-board" class="task-board"></div>
+      </section>
+      <section class="panel feed-panel" aria-label="Activity feed">
+        <h2 class="panel-title">Activity</h2>
+        <div id="feed" class="feed"></div>
+      </section>
+    </div>
+
+    <section class="panel output-section" aria-label="Output panel">
+      <div class="output-header">
+        <div class="tabs" role="tablist">
+          <button id="tab-output-btn" class="tab active" role="tab" aria-selected="true" aria-controls="output-panel">Output</button>
+          <button id="tab-files-btn" class="tab" role="tab" aria-selected="false" aria-controls="files-panel">Files</button>
+        </div>
+        <select id="task-select" class="task-select" aria-label="Select task for output"></select>
+      </div>
+
+      <div id="output-panel" class="tab-panel" role="tabpanel">
+        <pre id="output-pre" class="output-pre" aria-live="polite"></pre>
+        <div id="output-placeholder" class="placeholder">Select a task to watch its output stream.</div>
+      </div>
+
+      <div id="files-panel" class="tab-panel hidden" role="tabpanel">
+        <table class="files-table">
+          <thead>
+            <tr><th>Name</th><th>Status</th></tr>
+          </thead>
+          <tbody id="files-tbody"></tbody>
+        </table>
+        <div id="files-empty" class="placeholder">No files yet. Run the orchestrator to generate output files.</div>
+        <div class="files-actions">
+          <button id="zip-btn" class="btn ghost disabled" aria-label="Download ZIP of run files">Download ZIP</button>
+          <span class="files-spacer"></span>
+          <input id="qa-repo" class="mini-input" placeholder="owner/repo" aria-label="GitHub repository for push">
+          <button id="qa-push-btn" class="btn ghost" aria-label="Push files to GitHub">Push to GitHub</button>
+          <button id="qa-drive-btn" class="btn ghost" aria-label="Upload files to Google Drive">Upload to Drive</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="panel-backdrop" class="backdrop hidden"></div>
+
+<aside id="connector-panel" class="slide-panel" aria-hidden="true" aria-label="Connector panel">
+  <div class="slide-header">
+    <h2>Connectors</h2>
+    <button id="connector-panel-close" class="icon-btn" aria-label="Close connector panel">&#10005;</button>
+  </div>
+  <div id="connector-panel-body" class="slide-body"></div>
+</aside>
+
+<div id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<script src="dashboard.js"></script>
+</body>
+</html>

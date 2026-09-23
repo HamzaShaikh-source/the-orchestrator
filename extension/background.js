@@ -1,212 +1,251 @@
-const DEFAULT_SERVER_URL = 'http://127.0.0.1:3000';
+/* background.js — The Orchestrator service worker (MV3 module).
+   Fully self-contained: runs the multi-agent pipeline in-browser using the
+   user's real session cookies (fetch + credentials:'include' + host_permissions).
+   No node, no python, no npm, no external server. */
 
-const GEMINI_ALLOWED_KEYS = new Set([
-  'SID',
-  'HSID',
-  'SSID',
-  'APISID',
-  'SAPISID',
-  '__Secure-1PSID',
-  '__Secure-3PSID',
-  '__Secure-1PSIDTS',
-  '__Secure-3PSIDTS',
-  '__Secure-1PAPISID',
-  '__Secure-3PAPISID',
-  'NID',
-  'COMPASS',
-]);
+import { providers, chat, ProviderError } from './core/providers.js';
+import { runPipeline, slugify } from './core/orchestrator.js';
+import { zipFiles } from './core/zip.js';
+import { ChromeStore } from './core/store.js';
+import { listConnectorStatuses, connectorStatus, runConnectorAction } from './core/connectors.js';
+
+const store = new ChromeStore('local');
 
 function log(...args) {
-  console.log('[Bridge]', ...args);
+  console.log('[Orchestrator]', ...args);
 }
 
-async function getStored(keys) {
-  return chrome.storage.local.get(keys);
-}
+/* ── Run state ── */
+let activeRun = null; // { controller, port, goal, startedAt }
 
-function buildCookieMap(cookies) {
-  const map = {};
-  for (const c of cookies) {
-    if (typeof c.value === 'string' && c.value.length > 0) {
-      map[c.name] = c.value;
-    }
+function emit(port, event) {
+  try {
+    if (port && port.postMessage) port.postMessage({ type: 'event', event });
+  } catch {
+    /* port closed */
   }
-  return map;
 }
 
-async function postJson(url, body, timeoutMs = 5000) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
+async function handleRun(port, msg) {
+  if (activeRun) {
+    emit(port, { type: 'event', event: { type: 'error', message: 'A run is already in progress.' } });
+    return;
+  }
+  const goal = String(msg.goal || '').trim();
+  if (!goal) {
+    emit(port, { type: 'event', event: { type: 'error', message: 'Goal is required.' } });
+    return;
+  }
+
+  const controller = new AbortController();
+  activeRun = { controller, port, goal, startedAt: Date.now() };
+  log('run start:', goal.slice(0, 100));
+
+  const keepalive = setInterval(() => {
+    try { port.postMessage({ type: 'ping' }); } catch { /* closed */ }
+  }, 15000);
+
+  try {
+    const result = await runPipeline({
+      goal,
+      selectedAgents: Array.isArray(msg.selectedAgents) && msg.selectedAgents.length ? msg.selectedAgents : null,
+      projectFiles: msg.projectFiles || {},
+      autoConfirm: msg.autoConfirm !== false,
+      runSettings: { signal: controller.signal, retries: msg.retries ?? 2, maxAgents: msg.maxAgents ?? 4 },
+      onEvent: (event) => emit(port, event),
+      client: { providers, chat },
+      store,
+    });
+
+    if (result.ok && result.files && result.files.length) {
+      emit(port, { type: 'event', event: { type: 'files-ready', files: result.files.map((f) => f.name), zipName: result.zipName } });
+    }
+    const summary = summarizeResult(result);
+    await store.set('lastRun', { ...summary, files: result.files || [], zipName: result.zipName || null });
+    emit(port, { type: 'done', result: summary });
+  } catch (err) {
+    log('run failed:', err?.message || err);
+    emit(port, { type: 'done', result: { ok: false, error: err?.message || String(err), step: 'error' } });
+  } finally {
+    clearInterval(keepalive);
+    activeRun = null;
+  }
+}
+
+function summarizeResult(result) {
+  if (!result) return { ok: false, error: 'No result' };
+  const taskCount = (result.tasks || []).length;
+  const doneCount = (result.tasks || []).filter((t) => t.status === 'done').length;
+  const fileCount = (result.files || []).length;
+  return {
+    ok: result.ok,
+    error: result.error || null,
+    step: result.step || null,
+    taskCount,
+    doneCount,
+    fileCount,
+    zipName: result.zipName || null,
+    files: (result.files || []).map((f) => f.name),
+    conflicts: result.conflicts || [],
+    selectedAgents: result.selectedAgents || [],
+    synthesis: result.synthesis ? String(result.synthesis).slice(0, 2000) : '',
+  };
+}
+
+async function handleDownloadZip(port, msg) {
+  try {
+    const lastRun = await store.get('lastRun', null);
+    const files = (lastRun && lastRun.files) || [];
+    if (!files.length) {
+      emit(port, { type: 'done', result: { ok: false, error: 'No files from the last run.' } });
+      return;
+    }
+    const zipName = (lastRun && lastRun.zipName) || `orchestrator-${Date.now()}.zip`;
+    const blob = await zipFiles(files.map((f) => ({ name: f.name, content: f.content })));
+    const url = URL.createObjectURL(blob);
+    const id = await chrome.downloads.download({ url, filename: zipName, saveAs: true });
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    emit(port, { type: 'done', result: { ok: true, downloadId: id, zipName } });
+  } catch (err) {
+    emit(port, { type: 'done', result: { ok: false, error: `Download failed: ${err?.message || err}` } });
+  }
+}
+
+async function handleState(port) {
+  const lastRun = await store.get('lastRun', null);
+  const chats = await store.get('multiAgentChats', []);
+  const connectorTokens = await store.get('connectorTokens', {});
+  const hasTokens = {
+    github: Boolean(connectorTokens.github),
+    googleDrive: Boolean(connectorTokens.googleClientId && connectorTokens.googleClientSecret && connectorTokens.googleRefreshToken),
+  };
+  port.postMessage({
+    type: 'state',
+    state: {
+      running: Boolean(activeRun),
+      goal: activeRun ? activeRun.goal : null,
+      startedAt: activeRun ? activeRun.startedAt : null,
+      lastRun: lastRun ? summarizeResult(lastRun) : null,
+      chats: Array.isArray(chats) ? chats.slice(0, 20).map((c) => ({ id: c.id, title: c.title, status: c.status, timestamp: c.timestamp })) : [],
+      hasTokens,
+    },
   });
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
 }
 
-async function captureAll() {
-  const stored = await getStored(['token', 'serverUrl', 'accessToken']);
-  const token = stored.token;
-  const serverUrl = stored.serverUrl || DEFAULT_SERVER_URL;
-  const results = {};
+async function handleProviders(port) {
+  try {
+    const list = await providers();
+    port.postMessage({ type: 'providers', providers: list });
+  } catch (err) {
+    port.postMessage({ type: 'providers', providers: [], error: err?.message || String(err) });
+  }
+}
 
-  const providers = [
-    { id: 'perplexity', domain: 'perplexity.ai' },
-    { id: 'gemini', domain: 'google.com' },
-    { id: 'chatgpt', domain: 'chatgpt.com' },
-  ];
+async function handleConnectors(port) {
+  try {
+    const list = await listConnectorStatuses({ store });
+    port.postMessage({ type: 'connectors', connectors: list });
+  } catch (err) {
+    port.postMessage({ type: 'connectors', connectors: [], error: err?.message || String(err) });
+  }
+}
 
-  for (const { id, domain } of providers) {
+async function handleConnectorAction(port, msg) {
+  try {
+    const lastRun = await store.get('lastRun', null);
+    const result = await runConnectorAction(msg.id, msg.action, msg.args || {}, {
+      store,
+      lastRunFiles: (lastRun && lastRun.files) || [],
+    });
+    port.postMessage({ type: 'connector-result', id: msg.id, action: msg.action, result });
+  } catch (err) {
+    port.postMessage({ type: 'connector-result', id: msg.id, action: msg.action, result: { ok: false, error: err?.message || String(err) } });
+  }
+}
+
+async function handleSaveTokens(port, msg) {
+  try {
+    const current = (await store.get('connectorTokens', {})) || {};
+    const next = { ...current };
+    if (msg.tokens && typeof msg.tokens === 'object') {
+      for (const [k, v] of Object.entries(msg.tokens)) {
+        if (typeof v === 'string' && v.trim()) next[k] = v.trim();
+        else if (v === null || v === '') delete next[k];
+      }
+    }
+    await store.set('connectorTokens', next);
+    port.postMessage({ type: 'tokens-saved', ok: true });
+  } catch (err) {
+    port.postMessage({ type: 'tokens-saved', ok: false, error: err?.message || String(err) });
+  }
+}
+
+async function handleCookies(port) {
+  const domains = { chatgpt: 'chatgpt.com', gemini: 'google.com', perplexity: 'perplexity.ai' };
+  const out = {};
+  for (const [id, domain] of Object.entries(domains)) {
     try {
       const cookies = await chrome.cookies.getAll({ domain });
-      const cookieMap = buildCookieMap(cookies);
-      if (Object.keys(cookieMap).length === 0) {
-        results[id] = { ok: false, reason: 'not-logged-in', cookieCount: 0 };
-        log('no cookies for', id);
-        continue;
-      }
-
-      const body = { provider: id, cookies: cookieMap, token };
-      if (id === 'chatgpt') {
-        body.headers = {};
-        if (stored.accessToken) {
-          body.headers.authorization = `Bearer ${stored.accessToken}`;
-        }
-        body.account_id = '';
-      }
-      if (id === 'gemini') {
-        const filtered = {};
-        for (const [name, value] of Object.entries(cookieMap)) {
-          if (GEMINI_ALLOWED_KEYS.has(name) && value.length > 0) {
-            filtered[name] = value;
-          }
-        }
-        if (Object.keys(filtered).length === 0) {
-          results[id] = { ok: false, reason: 'not-logged-in', cookieCount: 0 };
-          log('no allowed cookies for', id);
-          continue;
-        }
-        body.cookies = filtered;
-      }
-
-      const res = await postJson(`${serverUrl}/api/cookies`, body);
-      results[id] = {
-        ok: res.ok,
-        status: res.status,
-        cookieCount: Object.keys(body.cookies).length,
-        data: res.data,
-      };
-      log('sent', id, 'count=', results[id].cookieCount, 'status=', res.status, 'ok=', res.ok);
+      const count = cookies.filter((c) => typeof c.value === 'string' && c.value.length > 0).length;
+      out[id] = { loggedIn: count > 0, cookieCount: count };
     } catch (err) {
-      results[id] = { ok: false, error: String(err && err.message ? err.message : err) };
-      log('capture failed for', id, results[id].error);
+      out[id] = { loggedIn: false, cookieCount: 0, error: err?.message || String(err) };
     }
   }
-
-  await chrome.storage.local.set({ lastResults: results });
-  return results;
+  port.postMessage({ type: 'cookies', cookies: out });
 }
 
-async function probeServer(serverUrl) {
-  try {
-    const res = await fetch(`${serverUrl}/api/state`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(2000),
-    });
-    return res.ok;
-  } catch (err) {
-    log('server probe failed:', String(err && err.message ? err.message : err));
-    return false;
-  }
-}
+/* ── Port hub ── */
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'dash') return;
+  log('dashboard connected');
 
-async function getStatus() {
-  const stored = await getStored(['token', 'serverUrl', 'lastResults']);
-  const serverUrl = stored.serverUrl || DEFAULT_SERVER_URL;
-  const serverReachable = await probeServer(serverUrl);
-  const lastResults = stored.lastResults || {};
-
-  const domains = {
-    chatgpt: 'chatgpt.com',
-    gemini: 'google.com',
-    perplexity: 'perplexity.ai',
+  const onMessage = (msg) => {
+    if (!msg || !msg.type) return;
+    switch (msg.type) {
+      case 'run':
+        handleRun(port, msg);
+        break;
+      case 'cancel':
+        if (activeRun) {
+          activeRun.controller.abort();
+          log('cancel requested');
+        }
+        break;
+      case 'state':
+        handleState(port);
+        break;
+      case 'providers':
+        handleProviders(port);
+        break;
+      case 'connectors':
+        handleConnectors(port);
+        break;
+      case 'connector-action':
+        handleConnectorAction(port, msg);
+        break;
+      case 'save-tokens':
+        handleSaveTokens(port, msg);
+        break;
+      case 'cookies':
+        handleCookies(port);
+        break;
+      case 'download-zip':
+        handleDownloadZip(port, msg);
+        break;
+      default:
+        port.postMessage({ type: 'error', error: `Unknown message type: ${msg.type}` });
+    }
   };
 
-  const providers = [];
-  for (const id of ['chatgpt', 'gemini', 'perplexity']) {
-    let cookieCount = 0;
-    try {
-      const cookies = await chrome.cookies.getAll({ domain: domains[id] });
-      if (id === 'gemini') {
-        cookieCount = cookies.filter(
-          (c) => GEMINI_ALLOWED_KEYS.has(c.name) && typeof c.value === 'string' && c.value.length > 0
-        ).length;
-      } else {
-        cookieCount = cookies.filter((c) => typeof c.value === 'string' && c.value.length > 0).length;
-      }
-    } catch (err) {
-      log('cookie check failed for', id, String(err && err.message ? err.message : err));
+  port.onMessage.addListener(onMessage);
+  port.onDisconnect.addListener(() => {
+    log('dashboard disconnected');
+    if (activeRun && activeRun.port === port) {
+      activeRun.controller.abort();
+      activeRun = null;
     }
-    const last = lastResults[id];
-    providers.push({
-      id,
-      loggedIn: cookieCount > 0,
-      sent: Boolean(last && last.ok),
-    });
-  }
-
-  return {
-    serverUrl,
-    token: stored.token,
-    serverReachable,
-    providers,
-  };
-}
-
-chrome.runtime.onInstalled.addListener(async () => {
-  try {
-    const token = crypto.randomUUID();
-    await chrome.storage.local.set({ token, serverUrl: DEFAULT_SERVER_URL });
-    log('installed, token generated');
-    await captureAll();
-  } catch (err) {
-    log('onInstalled failed:', String(err && err.message ? err.message : err));
-  }
+  });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  (async () => {
-    try {
-      if (message.type === 'capture') {
-        const results = await captureAll();
-        sendResponse({ ok: true, results });
-      } else if (message.type === 'status') {
-        const status = await getStatus();
-        sendResponse({ ok: true, ...status });
-      } else if (message.type === 'set-server-url') {
-        const url = String(message.url || '').trim();
-        if (!/^https?:\/\//.test(url)) {
-          sendResponse({ ok: false, error: 'invalid-url' });
-          return;
-        }
-        await chrome.storage.local.set({ serverUrl: url.replace(/\/+$/, '') });
-        log('server url set');
-        await captureAll();
-        sendResponse({ ok: true });
-      } else if (message.type === 'access-token') {
-        if (typeof message.token === 'string' && message.token.length > 0) {
-          await chrome.storage.local.set({ accessToken: message.token });
-          log('accessToken stored from content script');
-        }
-        sendResponse({ ok: true });
-      } else {
-        sendResponse({ ok: false, error: 'unknown-type' });
-      }
-    } catch (err) {
-      log('message handler error:', String(err && err.message ? err.message : err));
-      sendResponse({ ok: false, error: String(err && err.message ? err.message : err) });
-    }
-  })();
-  return true;
-});
+/* Persist last run summary for the dashboard + connectors */

@@ -1,26 +1,29 @@
 {
-  "name": "The Orchestrator — Cookie Bridge",
-  "version": "1.0.0",
+  "name": "The Orchestrator",
+  "version": "3.1.0",
+  "description": "Multi-agent AI orchestration in your browser — ChatGPT, Gemini and Perplexity run a parallel pipeline with no server, no API keys.",
   "manifest_version": 3,
-  "permissions": ["cookies", "storage"],
+  "permissions": ["cookies", "storage", "downloads", "tabs"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://gemini.google.com/*",
     "https://www.perplexity.ai/*",
-    "http://127.0.0.1:3000/*",
-    "http://localhost:3000/*"
+    "https://api.github.com/*",
+    "https://www.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_title": "The Orchestrator"
   },
-  "content_scripts": [
-    {
-      "matches": ["https://chatgpt.com/*"],
-      "js": ["content-chatgpt.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
