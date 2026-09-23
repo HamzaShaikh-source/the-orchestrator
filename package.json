@@ -1,0 +1,21 @@
+{
+  "name": "the-orchestrator",
+  "version": "3.0.0",
+  "description": "Multi-agent AI orchestration engine backed by Web2API (REST, no browser tabs)",
+  "type": "module",
+  "main": "harness/index.js",
+  "bin": {
+    "orchestrator": "harness/index.js"
+  },
+  "scripts": {
+    "start": "node harness/index.js",
+    "serve": "node harness/server.js",
+    "ext": "echo Load unpacked: chrome://extensions -> Developer mode -> Load unpacked -> extension/",
+    "test": "node --test",
+    "web2api": "python -m uvicorn web2api.server.app:app --host 127.0.0.1 --port 8080 --app-dir vendor/web2api"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

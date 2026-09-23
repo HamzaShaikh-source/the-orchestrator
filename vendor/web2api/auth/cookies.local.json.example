@@ -1,0 +1,13 @@
+{
+  "__cflb": "your-value",
+  "pplx.visitor-id": "your-value",
+  "pplx.edge-vid": "your-value",
+  "pplx.trackingAllowed": "your-value",
+  "pplx.visitor-ts": "your-value",
+  "pplx.session-id": "your-value",
+  "cf_clearance": "your-value",
+  "pplx.edge-sid": "your-value",
+  "next-auth.csrf-token": "your-value",
+  "__Secure-next-auth.session-token": "your-value",
+  "__cf_bm": "your-value"
+}

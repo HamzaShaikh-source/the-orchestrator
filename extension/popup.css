@@ -1,0 +1,168 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 340px;
+  background: #1e1e1e;
+  color: #ececec;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  padding: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #2a2a2a;
+  color: #ececec;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #888;
+}
+
+.pill-green .dot { background: #4caf50; }
+.pill-red .dot { background: #f44336; }
+.pill-gray .dot { background: #888; }
+
+.panel {
+  background: #2a2a2a;
+  border-radius: 8px;
+  padding: 4px 0;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.row:hover {
+  background: #333;
+}
+
+.provider-name {
+  font-weight: 500;
+}
+
+.status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.status-green {
+  background: rgba(76, 175, 80, 0.18);
+  color: #66bb6a;
+}
+
+.status-amber {
+  background: rgba(217, 119, 87, 0.18);
+  color: #d97757;
+}
+
+.status-gray {
+  background: rgba(136, 136, 136, 0.18);
+  color: #999;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.btn {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #ececec;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-accent {
+  background: #d97757;
+  color: #1e1e1e;
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: #e3896d;
+}
+
+.btn-ghost {
+  background: #2a2a2a;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: #333;
+}
+
+.server-url {
+  margin-bottom: 12px;
+}
+
+.server-url label {
+  display: block;
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.server-url input {
+  width: 100%;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  color: #ececec;
+  font-size: 12px;
+  padding: 7px 9px;
+  outline: none;
+}
+
+.server-url input:focus {
+  border-color: #d97757;
+}
+
+.note {
+  font-size: 11px;
+  color: #999;
+  line-height: 1.45;
+}

@@ -1,0 +1,26 @@
+{
+  "cookies": {
+    "oai-did": "your-value",
+    "__Host-next-auth.csrf-token": "your-value",
+    "__Secure-next-auth.session-token.0": "your-value",
+    "__Secure-next-auth.session-token.1": "your-value",
+    "cf_clearance": "your-value",
+    "__cf_bm": "your-value"
+  },
+  "headers": {
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.9",
+    "authorization": "Bearer YOUR_ACCESS_TOKEN",
+    "chatgpt-account-id": "your-account-id",
+    "content-type": "application/json",
+    "oai-client-build-number": "your-build-number",
+    "oai-client-version": "your-client-version",
+    "oai-device-id": "your-device-id",
+    "oai-language": "en-US",
+    "oai-session-id": "your-session-id",
+    "referer": "https://chatgpt.com/",
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+    "x-oai-is": "your-value"
+  },
+  "account_id": "your-account-id"
+}

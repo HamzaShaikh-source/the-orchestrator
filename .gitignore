@@ -4,3 +4,7 @@ node_modules/
 *.log
 dist/
 *.zip
+
+runs/
+harness/state/
+

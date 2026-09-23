@@ -1,0 +1,19 @@
+{
+  "cookies": {
+    "__Secure-1PSID": "your-value",
+    "__Secure-3PSID": "your-value",
+    "__Secure-1PSIDTS": "your-value",
+    "__Secure-3PSIDTS": "your-value",
+    "SID": "your-value",
+    "HSID": "your-value",
+    "SSID": "your-value",
+    "APISID": "your-value",
+    "SAPISID": "your-value",
+    "__Secure-1PAPISID": "your-value",
+    "__Secure-3PAPISID": "your-value",
+    "COMPASS": "your-value",
+    "NID": "your-value"
+  },
+  "headers": {},
+  "build_label": "optional-build-label-from-init-page"
+}

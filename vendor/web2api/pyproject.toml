@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "web2api"
+version = "1.1.0"
+description = "Unified cookie-based API clients for Perplexity, ChatGPT, and Gemini"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+keywords = ["perplexity", "chatgpt", "gemini", "ai", "api", "cookies"]
+authors = [
+    {name = "Abdullah Ibne Hanif Arean"},
+]
+maintainers = [
+    {name = "Abdullah Ibne Hanif Arean"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "curl_cffi>=0.5.7",
+    "requests>=2.32.0",
+    "pybase64>=1.4.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4.0",
+]
+test = [
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+web2api-serve = "web2api.server.cli:main"
+web2api-test-perplexity = "web2api.scripts.test_perplexity:main"
+web2api-test-chatgpt = "web2api.scripts.test_chatgpt:main"
+web2api-test-gemini = "web2api.scripts.test_gemini:main"
+
+[project.urls]
+Homepage = "https://github.com/AbdullahArean/web2api"
+Documentation = "https://github.com/AbdullahArean/web2api#readme"
+Repository = "https://github.com/AbdullahArean/web2api"
+Issues = "https://github.com/AbdullahArean/web2api/issues"
+Changelog = "https://github.com/AbdullahArean/web2api/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["web2api*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>The Orchestrator — Cookie Bridge</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="title">The Orchestrator — Cookie Bridge</div>
+    <span id="server-pill" class="pill pill-gray"><span class="dot"></span><span id="server-pill-text">Offline</span></span>
+  </header>
+
+  <section class="panel" id="providers">
+    <div class="row" data-url="https://chatgpt.com/">
+      <span class="provider-name">ChatGPT</span>
+      <span class="status" id="status-chatgpt">—</span>
+    </div>
+    <div class="row" data-url="https://gemini.google.com/">
+      <span class="provider-name">Gemini</span>
+      <span class="status" id="status-gemini">—</span>
+    </div>
+    <div class="row" data-url="https://www.perplexity.ai/">
+      <span class="provider-name">Perplexity</span>
+      <span class="status" id="status-perplexity">—</span>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button id="capture-btn" class="btn btn-accent">Capture &amp; send now</button>
+    <button id="dashboard-btn" class="btn btn-ghost">Open dashboard</button>
+  </div>
+
+  <div class="server-url">
+    <label for="server-url-input">Server URL</label>
+    <input id="server-url-input" type="text" spellcheck="false" placeholder="http://127.0.0.1:3000" />
+  </div>
+
+  <p class="note">Log into the provider sites in this browser, then capture. Cookies are sent only to your local server.</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
