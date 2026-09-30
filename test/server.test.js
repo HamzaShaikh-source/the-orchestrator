@@ -108,6 +108,74 @@ after(async () => {
   if (ck.tmp) await fs.rm(ck.tmp, { recursive: true, force: true });
 });
 
+test('POST /api/connector-tokens saves credentials and flips status to connected', async () => {
+  // Stub ONLY GitHub's API; everything else (including our own calls to the
+  // local test server) must go to the real fetch.
+  const ORIG = global.fetch;
+  const ghCalls = [];
+  global.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (/api\.github\.com\/user$/.test(u)) {
+      ghCalls.push({ url: u, auth: (init.headers || {}).Authorization });
+      return new Response(JSON.stringify({ login: 'octocat' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return ORIG(url, init);
+  };
+  try {
+    delete process.env.GITHUB_TOKEN;
+    // Before: needs-setup
+    const before = await (await ORIG(`${ctx.base}/api/connectors`)).json();
+    assert.equal(before.find((c) => c.id === 'github').status, 'needs-setup');
+
+    const res = await postJson(`${ctx.base}/api/connector-tokens`, { tokens: { github: 'ghp_testtoken' } });
+    assert.equal(res.status, 200);
+    const out = await res.json();
+    assert.equal(out.ok, true);
+    assert.deepEqual(out.saved, ['github']);
+    assert.equal(out.connectors.find((c) => c.id === 'github').status, 'connected');
+    // The token was used as a Bearer token...
+    assert.equal(ghCalls.at(-1).auth, 'Bearer ghp_testtoken');
+    // ...but never echoed back in the response.
+    assert.ok(!JSON.stringify(out).includes('ghp_testtoken'), 'token value never echoed');
+
+    // Persisted in the store...
+    const saved = await ctx.store.get('connectorTokens', {});
+    assert.equal(saved.github, 'ghp_testtoken');
+
+    // ...and the status endpoint now reports connected without env vars.
+    const after = await (await ORIG(`${ctx.base}/api/connectors`)).json();
+    assert.equal(after.find((c) => c.id === 'github').status, 'connected');
+  } finally {
+    global.fetch = ORIG;
+  }
+});
+
+test('POST /api/connector-tokens rejects bad payloads', async () => {
+  const r1 = await postJson(`${ctx.base}/api/connector-tokens`, {});
+  assert.equal(r1.status, 400);
+  const r2 = await postJson(`${ctx.base}/api/connector-tokens`, { tokens: [] });
+  assert.equal(r2.status, 400);
+  const r3 = await postJson(`${ctx.base}/api/connector-tokens`, { tokens: { unknownKey: 'x' } });
+  assert.equal(r3.status, 400);
+  const r4 = await postJson(`${ctx.base}/api/connector-tokens`, { tokens: { github: 123 } });
+  assert.equal(r4.status, 400);
+});
+
+test('POST /api/connector-tokens clears a credential with an empty string', async () => {
+  await postJson(`${ctx.base}/api/connector-tokens`, { tokens: { github: 'ghp_temp' } });
+  assert.equal((await ctx.store.get('connectorTokens', {})).github, 'ghp_temp');
+  await postJson(`${ctx.base}/api/connector-tokens`, { tokens: { github: '' } });
+  const saved = await ctx.store.get('connectorTokens', {});
+  assert.equal(saved.github, undefined, 'empty string removes the stored credential');
+});
+
+test('GET /api/connectors reports drive needs-setup with actionable detail', async () => {
+  const list = await (await fetch(`${ctx.base}/api/connectors`)).json();
+  const drive = list.find((c) => c.id === 'google-drive');
+  assert.equal(drive.status, 'needs-setup');
+  assert.match(drive.detail, /Connectors panel|GOOGLE_CLIENT_ID/);
+});
+
 test('GET / serves dashboard HTML', async () => {
   const res = await fetch(`${ctx.base}/`);
   assert.equal(res.status, 200);

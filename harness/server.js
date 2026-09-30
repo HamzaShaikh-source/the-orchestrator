@@ -13,6 +13,7 @@ import {
   connectorStatus,
   listConnectorStatuses,
   runConnectorAction,
+  saveConnectorTokens,
   lastRunDir,
 } from './connectors.js';
 
@@ -454,6 +455,39 @@ export function createServer({
     sendJson(res, 200, status);
   }
 
+  async function handleConnectorTokens(req, res) {
+    const body = await readJsonBody(req);
+    const tokens = body?.tokens;
+    if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) {
+      sendJson(res, 400, { ok: false, error: 'tokens must be an object' });
+      return;
+    }
+    const allowed = ['github', 'googleClientId', 'googleClientSecret', 'googleRefreshToken'];
+    const incoming = {};
+    for (const [k, v] of Object.entries(tokens)) {
+      if (!allowed.includes(k)) continue;
+      if (typeof v !== 'string' && v !== null) {
+        sendJson(res, 400, { ok: false, error: `token "${k}" must be a string` });
+        return;
+      }
+      incoming[k] = v;
+    }
+    if (!Object.keys(incoming).length) {
+      sendJson(res, 400, { ok: false, error: `no recognised keys (allowed: ${allowed.join(', ')})` });
+      return;
+    }
+    await saveConnectorTokens(store, incoming);
+    // Never echo the values back — only which connectors now look configured.
+    const statuses = await listConnectorStatuses({ store });
+    broadcast({ type: 'connectors-updated' });
+    console.log(`[Connectors] credentials updated (${Object.keys(incoming).join(', ')})`);
+    sendJson(res, 200, {
+      ok: true,
+      saved: Object.keys(incoming),
+      connectors: statuses.map((s) => ({ id: s.id, status: s.status, detail: s.detail })),
+    });
+  }
+
   async function handleConnectorAction(req, res, id) {
     const body = await readJsonBody(req);
     if (!CONNECTORS.some((c) => c.id === id)) {
@@ -726,6 +760,14 @@ export function createServer({
         return;
       }
       await handleConnectorList(req, res);
+      return;
+    }
+    if (p === '/api/connector-tokens') {
+      if (m !== 'POST') {
+        sendJson(res, 405, { error: 'method not allowed' });
+        return;
+      }
+      await handleConnectorTokens(req, res);
       return;
     }
     const connMatch = /^\/api\/connectors\/([^/]+)\/(refresh|action)$/.exec(p);

@@ -24,17 +24,42 @@ function log(id, ...msg) {
   console.log(`[Connector:${id}]`, ...msg);
 }
 
-function ghToken() {
-  return process.env.GITHUB_TOKEN;
+/* Tokens come from the server's Store (set in the dashboard Connectors panel)
+   and fall back to environment variables. Never logged, never committed. */
+const TOKEN_KEYS = ['github', 'googleClientId', 'googleClientSecret', 'googleRefreshToken'];
+
+async function getTokens(store) {
+  let saved = {};
+  if (store && typeof store.get === 'function') {
+    try {
+      saved = (await store.get('connectorTokens', {})) || {};
+    } catch {
+      saved = {};
+    }
+  }
+  return {
+    github: saved.github || process.env.GITHUB_TOKEN || '',
+    googleClientId: saved.googleClientId || process.env.GOOGLE_CLIENT_ID || '',
+    googleClientSecret: saved.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '',
+    googleRefreshToken: saved.googleRefreshToken || process.env.GOOGLE_REFRESH_TOKEN || '',
+  };
 }
 
-function driveCreds() {
-  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = process.env;
-  return { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN };
+/* Persist connector credentials (used by POST /api/connector-tokens). */
+export async function saveConnectorTokens(store, tokens = {}) {
+  const current = (await store.get('connectorTokens', {})) || {};
+  const next = { ...current };
+  for (const key of TOKEN_KEYS) {
+    if (!(key in tokens)) continue;
+    const v = tokens[key];
+    if (typeof v === 'string' && v.trim()) next[key] = v.trim();
+    else if (v === null || v === '') delete next[key];
+  }
+  await store.set('connectorTokens', next);
+  return next;
 }
 
-async function ghFetch(pathname, init = {}) {
-  const token = ghToken();
+async function ghFetch(token, pathname, init = {}) {
   if (!token) throw new ConnectorError('GitHub token not configured', 'auth');
   const headers = { ...(init.headers || {}), Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
   const res = await fetch(`${GITHUB_API}${pathname}`, {
@@ -57,8 +82,8 @@ function ghError(res, fallback = 'GitHub API request failed') {
   return new ConnectorError(`${fallback} (HTTP ${res.status})`, res.status >= 500 ? 'api' : 'api');
 }
 
-async function driveAccessToken() {
-  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = driveCreds();
+async function driveAccessToken(store) {
+  const { googleClientId: GOOGLE_CLIENT_ID, googleClientSecret: GOOGLE_CLIENT_SECRET, googleRefreshToken: GOOGLE_REFRESH_TOKEN } = await getTokens(store);
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
     throw new ConnectorError('Google Drive credentials not configured', 'auth');
   }
@@ -86,12 +111,13 @@ async function driveAccessToken() {
   return json.access_token;
 }
 
-async function githubStatus() {
-  if (!ghToken()) {
-    return { status: 'needs-setup', detail: 'Set GITHUB_TOKEN environment variable' };
+async function githubStatus(store) {
+  const { github: token } = await getTokens(store);
+  if (!token) {
+    return { status: 'needs-setup', detail: 'Add a GitHub token in the Connectors panel (or set GITHUB_TOKEN)' };
   }
   try {
-    const { res, json } = await ghFetch('/user');
+    const { res, json } = await ghFetch(token, '/user');
     if (res.status === 200) {
       return { status: 'connected', detail: json && json.login ? `Authenticated as ${json.login}` : 'Authenticated' };
     }
@@ -101,13 +127,13 @@ async function githubStatus() {
   }
 }
 
-async function driveStatus() {
-  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = driveCreds();
+async function driveStatus(store) {
+  const { googleClientId: GOOGLE_CLIENT_ID, googleClientSecret: GOOGLE_CLIENT_SECRET, googleRefreshToken: GOOGLE_REFRESH_TOKEN } = await getTokens(store);
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
-    return { status: 'needs-setup', detail: 'Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN' };
+    return { status: 'needs-setup', detail: 'Add Drive OAuth credentials in the Connectors panel (or set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN)' };
   }
   try {
-    await driveAccessToken();
+    await driveAccessToken(store);
     return { status: 'connected', detail: 'Authenticated via OAuth refresh token' };
   } catch {
     return { status: 'error', detail: 'Google Drive token exchange failed' };
@@ -118,8 +144,8 @@ export async function connectorStatus(id, { store } = {}) {
   const meta = CONNECTORS.find((c) => c.id === id);
   if (!meta) throw new ConnectorError(`Unknown connector: ${id}`, 'invalid');
   let result;
-  if (id === 'github') result = await githubStatus();
-  else if (id === 'google-drive') result = await driveStatus();
+  if (id === 'github') result = await githubStatus(store);
+  else if (id === 'google-drive') result = await driveStatus(store);
   else result = { status: 'connected', detail: 'POST JSON to any URL' };
   log(id, `status=${result.status}`);
   return { id: meta.id, name: meta.name, icon: meta.icon, ...result, actions: meta.actions };
@@ -201,12 +227,13 @@ function encodeGitPath(p) {
   return p.split('/').map((s) => encodeURIComponent(s)).join('/');
 }
 
-async function runGithubAction(action, args, outDir) {
+async function runGithubAction(store, action, args, outDir) {
+  const { github: token } = await getTokens(store);
   if (action === 'create-repo') {
     const name = args.name;
     if (!name) throw new ConnectorError('name is required for create-repo', 'invalid');
     log('github', 'create-repo', name);
-    const { res, json } = await ghFetch('/user/repos', {
+    const { res, json } = await ghFetch(token, '/user/repos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, private: !!args.private, auto_init: false }),
@@ -218,7 +245,7 @@ async function runGithubAction(action, args, outDir) {
   if (action === 'list-repos') {
     const perPage = Number.isInteger(args.per_page) ? args.per_page : 20;
     log('github', 'list-repos', `per_page=${perPage}`);
-    const { res, json } = await ghFetch(`/user/repos?per_page=${perPage}&sort=updated`);
+    const { res, json } = await ghFetch(token, `/user/repos?per_page=${perPage}&sort=updated`);
     if (!res.ok) throw ghError(res, 'Could not list repos');
     const repos = (json || []).map((r) => ({ full_name: r.full_name, html_url: r.html_url, private: r.private }));
     return { ok: true, result: { repos } };
@@ -233,7 +260,7 @@ async function runGithubAction(action, args, outDir) {
     const pushed = [];
     for (const file of files) {
       const endpoint = `/repos/${encodeGitPath(repo)}/contents/${encodeGitPath(file.path)}`;
-      const existing = await ghFetch(endpoint);
+      const existing = await ghFetch(token, endpoint);
       let sha;
       let status;
       if (existing.res.status === 200) {
@@ -246,7 +273,7 @@ async function runGithubAction(action, args, outDir) {
       }
       const payload = { message: 'Orchestrator run', content: file.bytes.toString('base64') };
       if (sha) payload.sha = sha;
-      const put = await ghFetch(endpoint, {
+      const put = await ghFetch(token, endpoint, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -277,11 +304,11 @@ function buildMultipart(boundary, files) {
   return Buffer.concat(chunks);
 }
 
-async function runDriveAction(action, args, outDir) {
+async function runDriveAction(store, action, args, outDir) {
   if (action !== 'upload-files') throw new ConnectorError(`Unknown google-drive action: ${action}`, 'invalid');
   const files = await resolveFileList(args, outDir);
   if (!files.length) throw new ConnectorError('No files to upload', 'api');
-  const token = await driveAccessToken();
+  const token = await driveAccessToken(store);
   const folderId = args.folderId;
   log('google-drive', 'upload-files', folderId || '(root)', files.map((f) => f.name).join(', '));
   const uploaded = [];
@@ -343,8 +370,8 @@ export async function runConnectorAction(id, action, args = {}, { store, outDir 
   const meta = CONNECTORS.find((c) => c.id === id);
   if (!meta) throw new ConnectorError(`Unknown connector: ${id}`, 'invalid');
   if (!meta.actions.includes(action)) throw new ConnectorError(`Unknown action: ${id}/${action}`, 'invalid');
-  if (id === 'github') return runGithubAction(action, args, outDir);
-  if (id === 'google-drive') return runDriveAction(action, args, outDir);
+  if (id === 'github') return runGithubAction(store, action, args, outDir);
+  if (id === 'google-drive') return runDriveAction(store, action, args, outDir);
   if (id === 'webhook') return runWebhookAction(action, args, outDir);
   throw new ConnectorError(`Unknown connector: ${id}`, 'invalid');
 }

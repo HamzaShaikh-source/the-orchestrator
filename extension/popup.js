@@ -37,4 +37,8 @@ document.getElementById('dashboard-btn').addEventListener('click', () => {
   chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
 });
 
+document.getElementById('site-btn').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://hamzashaikh-source.github.io/the-orchestrator/' });
+});
+
 refresh();

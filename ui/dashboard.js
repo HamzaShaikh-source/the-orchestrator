@@ -746,33 +746,47 @@ function renderPanel() {
       `</div>` + detail;
 
     let body = '';
-    if (c.id === 'github') {
-      body =
-        `<div class="conn-form">` +
-          `<div class="field-row">` +
-            `<input id="gh-repo" class="conn-input" placeholder="owner/repo name" aria-label="Repository name">` +
-            `<label class="check-label"><input type="checkbox" id="gh-private"> Private</label>` +
-          `</div>` +
-          `<div class="conn-actions">` +
-            `<button type="button" class="btn small" data-action="create-repo" data-cid="github">Create repo</button>` +
-            `<button type="button" class="btn small" data-action="push-files" data-cid="github">Push files</button>` +
-            `<button type="button" class="btn small" data-action="list-repos" data-cid="github">List repos</button>` +
-          `</div>` +
-        `</div>` +
-        connResultHtml('github') +
-        `<div id="gh-repos" class="repo-list"></div>`;
-    } else if (c.id === 'google-drive') {
-      body =
-        `<div class="conn-form">` +
-          `<div class="field-row">` +
-            `<input id="gd-folder" class="conn-input" placeholder="folderId (optional)" aria-label="Google Drive folder ID">` +
-          `</div>` +
-          `<div class="conn-actions">` +
-            `<button type="button" class="btn small" data-action="upload-files" data-cid="google-drive">Upload files</button>` +
-          `</div>` +
-        `</div>` +
-        connResultHtml('google-drive');
-    } else if (c.id === 'webhook') {
+        if (c.id === 'github') {
+          body =
+            `<div class="conn-form">` +
+              `<div class="field-row">` +
+                `<input id="gh-token" type="password" class="conn-input" placeholder="GitHub token (ghp_… / github_pat_…)" aria-label="GitHub personal access token">` +
+                `<button type="button" class="btn small" data-save-tokens="github">Save token</button>` +
+              `</div>` +
+              `<div class="field-row">` +
+                `<input id="gh-repo" class="conn-input" placeholder="owner/repo name" aria-label="Repository name">` +
+                `<label class="check-label"><input type="checkbox" id="gh-private"> Private</label>` +
+              `</div>` +
+              `<div class="conn-actions">` +
+                `<button type="button" class="btn small" data-action="create-repo" data-cid="github">Create repo</button>` +
+                `<button type="button" class="btn small" data-action="push-files" data-cid="github">Push files</button>` +
+                `<button type="button" class="btn small" data-action="list-repos" data-cid="github">List repos</button>` +
+              `</div>` +
+            `</div>` +
+            connResultHtml('github') +
+            `<div id="gh-repos" class="repo-list"></div>`;
+        } else if (c.id === 'google-drive') {
+          body =
+            `<div class="conn-form">` +
+              `<div class="field-row">` +
+                `<input id="gd-client-id" type="password" class="conn-input" placeholder="OAuth client ID" aria-label="Google OAuth client ID">` +
+              `</div>` +
+              `<div class="field-row">` +
+                `<input id="gd-client-secret" type="password" class="conn-input" placeholder="OAuth client secret" aria-label="Google OAuth client secret">` +
+              `</div>` +
+              `<div class="field-row">` +
+                `<input id="gd-refresh" type="password" class="conn-input" placeholder="Refresh token" aria-label="Google OAuth refresh token">` +
+                `<button type="button" class="btn small" data-save-tokens="drive">Save credentials</button>` +
+              `</div>` +
+              `<div class="field-row">` +
+                `<input id="gd-folder" class="conn-input" placeholder="folderId (optional)" aria-label="Google Drive folder ID">` +
+              `</div>` +
+              `<div class="conn-actions">` +
+                `<button type="button" class="btn small" data-action="upload-files" data-cid="google-drive">Upload files</button>` +
+              `</div>` +
+            `</div>` +
+            connResultHtml('google-drive');
+        } else if (c.id === 'webhook') {
       body =
         `<div class="conn-form">` +
           `<input id="wh-url" class="conn-input" placeholder="https://example.com/hook" aria-label="Webhook URL">` +
@@ -861,6 +875,35 @@ async function connectorAction(id, action, args = {}) {
     pushFeed(`${id}: ${err.message}`, 'bad');
     if (state.panelOpen) renderPanel();
     return null;
+  }
+}
+
+async function saveTokens(kind) {
+  let tokens = {};
+  if (kind === 'github') {
+    const v = ($('gh-token')?.value || '').trim();
+    if (!v) { toast('Paste a GitHub token first', 'error'); return; }
+    tokens = { github: v };
+  } else if (kind === 'drive') {
+    const id = ($('gd-client-id')?.value || '').trim();
+    const secret = ($('gd-client-secret')?.value || '').trim();
+    const refresh = ($('gd-refresh')?.value || '').trim();
+    if (!id || !secret || !refresh) { toast('Fill all three Drive fields', 'error'); return; }
+    tokens = { googleClientId: id, googleClientSecret: secret, googleRefreshToken: refresh };
+  } else {
+    return;
+  }
+  try {
+    const out = await postJSON('/api/connector-tokens', { tokens });
+    // Clear the secret inputs immediately after a successful save.
+    for (const el of document.querySelectorAll('#gh-token, #gd-client-id, #gd-client-secret, #gd-refresh')) el.value = '';
+    const summary = (out.connectors || []).map((c) => `${c.id}: ${c.status}`).join(', ');
+    toast(`Saved. ${summary}`, 'good');
+    pushFeed(`${kind === 'github' ? 'GitHub' : 'Google Drive'} credentials saved`, 'good');
+    await loadConnectors();
+    if (state.panelOpen) renderPanel();
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, 'error');
   }
 }
 
@@ -1060,7 +1103,14 @@ function bindUI() {
   });
 
   $('connector-panel-body').addEventListener('click', async (e) => {
-    const refreshBtn = e.target.closest('[data-refresh]');
+      const saveBtn = e.target.closest('[data-save-tokens]');
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        await saveTokens(saveBtn.dataset.saveTokens);
+        saveBtn.disabled = false;
+        return;
+      }
+      const refreshBtn = e.target.closest('[data-refresh]');
     if (refreshBtn) {
       refreshBtn.disabled = true;
       await refreshConnector(refreshBtn.dataset.refresh);
