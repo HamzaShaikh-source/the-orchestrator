@@ -8,3 +8,9 @@ dist/
 runs/
 harness/state/
 
+# Web2API auth material and virtualenv (secrets — never commit)
+vendor/web2api/.venv/
+vendor/web2api/**/__pycache__/
+vendor/web2api/*.egg-info/
+*.local.json
+

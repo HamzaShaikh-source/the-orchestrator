@@ -84,51 +84,49 @@ footer { border-top:1px solid var(--border); margin-top:64px; padding-top:24px; 
     <h1>The <span class="accent">Orchestrator</span></h1>
     <p class="sub">Coordinate ChatGPT, Gemini and Perplexity into a parallel multi-agent pipeline — plan, route, execute, synthesize, and ship files. REST transport, no browser tabs, no API keys.</p>
     <div class="badges">
-      <span class="badge orange">v3.0</span>
-      <span class="badge green">Web2API transport</span>
-      <span class="badge green">86 tests</span>
-      <span class="badge gray">Zero npm deps</span>
-      <span class="badge gray">MIT</span>
-    </div>
-    <div class="cta">
-      <a class="btn primary" href="https://github.com/HamzaShaikh-source/the-orchestrator">GitHub</a>
-      <a class="btn ghost" href="#quickstart">Quick start</a>
-    </div>
-  </header>
+          <span class="badge orange">v3.1</span>
+          <span class="badge green">Self-contained extension</span>
+          <span class="badge green">108 tests</span>
+          <span class="badge gray">Zero npm deps</span>
+          <span class="badge gray">MIT</span>
+        </div>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/HamzaShaikh-source/the-orchestrator">GitHub</a>
+          <a class="btn ghost" href="#quickstart">Quick start</a>
+        </div>
+      </header>
 
-  <section id="what">
-    <h2><span class="hash">#</span>What it does</h2>
-    <p class="lead">One goal in, a coordinated team of AI agents out.</p>
-    <div class="grid">
-      <div class="card"><span class="icon">🧠</span><h4>Brain planning</h4><p>ChatGPT (the brain) decomposes your goal into typed subtasks with dependency ordering.</p></div>
-      <div class="card"><span class="icon">⚡</span><h4>True parallelism</h4><p>Tasks run in parallel across agents — sequential within an agent to respect rate limits.</p></div>
-      <div class="card"><span class="icon">📚</span><h4>Long-context handling</h4><p>7500-char turn budget, long prompts split into chained conversation turns, outputs compacted before reuse.</p></div>
-      <div class="card"><span class="icon">📁</span><h4>File creator harness</h4><p>Extracts <code>&lt;file&gt;</code> blocks, writes traversal-safe paths, detects conflicts, zips the run.</p></div>
-      <div class="card"><span class="icon">🛡️</span><h4>Resilience</h4><p>Retry with exponential backoff + jitter, agent failover, reliability tracking, per-agent session memory.</p></div>
-      <div class="card"><span class="icon">🔌</span><h4>Connectors</h4><p>Push results to GitHub, upload to Google Drive, or fire a webhook — from the dashboard.</p></div>
-    </div>
-  </section>
+      <section id="what">
+        <h2><span class="hash">#</span>What it does</h2>
+        <p class="lead">One goal in, a coordinated team of AI agents out.</p>
+        <div class="grid">
+          <div class="card"><span class="icon">🧠</span><h4>Brain planning</h4><p>ChatGPT (the brain) decomposes your goal into typed subtasks with dependency ordering.</p></div>
+          <div class="card"><span class="icon">⚡</span><h4>True parallelism</h4><p>Tasks run in parallel across agents — sequential within an agent to respect rate limits.</p></div>
+          <div class="card"><span class="icon">📚</span><h4>Long-context handling</h4><p>7500-char turn budget, long prompts split into chained conversation turns, outputs compacted before reuse.</p></div>
+          <div class="card"><span class="icon">📁</span><h4>File creator harness</h4><p>Extracts <code>&lt;file&gt;</code> blocks, writes traversal-safe paths, detects conflicts, zips the run.</p></div>
+          <div class="card"><span class="icon">🛡️</span><h4>Resilience</h4><p>Retry with exponential backoff + jitter, agent failover, reliability tracking, per-agent session memory.</p></div>
+          <div class="card"><span class="icon">📦</span><h4>Self-contained option</h4><p>The Chrome extension runs the whole pipeline in a service worker — no server, no Python, no API keys.</p></div>
+        </div>
+      </section>
 
-  <section id="quickstart">
-    <h2><span class="hash">#</span>Quick start</h2>
-    <p class="lead">Three steps from clone to a running multi-agent pipeline.</p>
-    <h3>1. Start the backend</h3>
-<pre><span class="c"># Web2API server (cookie-based REST for ChatGPT/Gemini/Perplexity)</span>
-cd vendor/web2api
-python -m venv .venv
-.venv\Scripts\pip install -e .
-.venv\Scripts\python -m uvicorn web2api.server.app:app --host 127.0.0.1 --port 8080
+      <section id="quickstart">
+        <h2><span class="hash">#</span>Quick start</h2>
+        <p class="lead">Two ways to run it — pick one.</p>
 
-<span class="c"># Orchestrator dashboard server (separate terminal)</span>
-npm run serve          <span class="c"># http://127.0.0.1:3000</span></pre>
-    <h3>2. Install the Cookie Bridge extension</h3>
-<pre>npm run ext
-<span class="c"># chrome://extensions → Developer mode → Load unpacked → extension/</span></pre>
-    <p>On install the extension generates a pairing token, captures your ChatGPT / Gemini / Perplexity session cookies, and feeds them to the local server. Providers go <span class="pill green">Live</span> instantly — no manual cookie extraction, no auth files to edit.</p>
-    <h3>3. Run</h3>
-<pre>node harness/index.js --goal "Build a landing page with a contact form"</pre>
-    <p>…or open <code>http://127.0.0.1:3000</code> and drive it from the dashboard.</p>
-  </section>
+        <h3>Option A — self-contained Chrome extension (no server)</h3>
+    <pre>npm run ext            <span class="c"># prints the exact folder to load</span>
+    <span class="c"># chrome://extensions → Developer mode → Load unpacked → extension/</span>
+    <span class="c"># click the icon → Open dashboard → type a goal → Run</span></pre>
+        <p>The entire pipeline — planning, parallel agents, synthesis, file generation, ZIP — runs inside the Chrome service worker using your existing session cookies. Nothing to install, nothing to start. Works in Chrome, Brave, Edge or Vivaldi.</p>
+
+        <h3>Option B — Node harness (CLI + local web dashboard)</h3>
+    <pre>npm run dev            <span class="c"># starts Web2API :8080 + dashboard :3000</span>
+    <span class="c"># the Web2API Python venv is created and installed automatically on first run</span>
+
+    node harness/index.js --goal "Build a landing page with a contact form"</pre>
+        <p>Prefer the dashboard? Open <code>http://127.0.0.1:3000</code>. Want providers live without editing auth files by hand? Load <code>extension/</code> unpacked — when the local server is running it also pushes captured cookies to it and hot-reloads Web2API.</p>
+        <p>Requirements: <strong>Node ≥ 20</strong> (zero npm dependencies), and for Option B <strong>Python ≥ 3.11</strong> plus <code>uv</code> (preferred) or <code>python -m venv</code>.</p>
+      </section>
 
   <section id="pipeline">
     <h2><span class="hash">#</span>Pipeline</h2>
@@ -207,27 +205,33 @@ npm run serve          <span class="c"># http://127.0.0.1:3000</span></pre>
 ├── file-harness.js     <span class="c"># &lt;file&gt; extraction, safe writes, conflict detection, pure-Node ZIP</span>
 └── store.js            <span class="c"># Atomic JSON KV store</span>
 
-extension/              <span class="c"># Chrome MV3 Cookie Bridge (auto-capture provider cookies)</span>
-ui/dashboard.*          <span class="c"># Claude-style dashboard (html/css/js)</span>
+extension/              <span class="c"># self-contained path: full pipeline in the Chrome service worker</span>
+  core/providers.js     <span class="c"># ChatGPT / Gemini / Perplexity clients (SSE, cookies, PoW)</span>
+  core/orchestrator.js  <span class="c"># the pipeline, in-browser</span>
+scripts/                <span class="c"># cross-platform launchers (Node, zero-dep)</span>
+ui/dashboard.*          <span class="c"># Claude-style dashboard for the Node server</span>
 vendor/web2api/         <span class="c"># Web2API backend (FastAPI, SSE, cookie-based)</span>
-src/, content/, ui/legacy  <span class="c"># Legacy v2 browser-extension code (unused by the harness)</span></pre>
+src/, content/, ui/legacy  <span class="c"># Legacy v2 browser-extension code (unused)</span></pre>
   </section>
 
   <section id="tests">
-    <h2><span class="hash">#</span>Tests</h2>
-<pre>node --test        <span class="c"># 86 tests: client SSE/splitting/retry, planner, router, file harness,</span>
-                   <span class="c"># server routes, cookie ingestion, connectors, full pipeline</span></pre>
-  </section>
+      <h2><span class="hash">#</span>Tests</h2>
+  <pre>npm test           <span class="c"># 108 tests: SSE parsing + turn splitting + retry/backoff, planner,</span>
+                     <span class="c"># router, file harness (extraction/traversal/ZIP), store, server routes,</span>
+                     <span class="c"># cookie ingestion, connectors, extension core (SHA3 / PoW / Gemini frames),</span>
+                     <span class="c"># full pipeline smoke test, and a true end-to-end HTTP + SSE test</span></pre>
+    </section>
 
-  <section id="faq">
-    <h2><span class="hash">#</span>Notes</h2>
-    <ul style="margin-left:20px;color:var(--text2);font-size:14px;">
-      <li style="margin-bottom:8px;">Cookies are session-based: they expire and may be IP-bound. Re-capture from the extension popup when a provider stops responding.</li>
-      <li style="margin-bottom:8px;">DeepSeek and HuggingFace agents were removed — Web2API has no API path for them.</li>
-      <li style="margin-bottom:8px;">ChatGPT needs its Bearer token for full API access — the extension grabs it from localStorage when available (best effort). Gemini and Perplexity are cookie-only.</li>
-      <li style="margin-bottom:8px;">The legacy Chrome extension (<code>src/</code>, <code>content/</code>, <code>ui/legacy</code>) is kept for reference; the harness is the supported path.</li>
-    </ul>
-  </section>
+    <section id="faq">
+      <h2><span class="hash">#</span>Notes</h2>
+      <ul style="margin-left:20px;color:var(--text2);font-size:14px;">
+        <li style="margin-bottom:8px;">Provider auth is your browser session: cookies expire and are sometimes IP-bound. Re-capture when a provider stops responding.</li>
+        <li style="margin-bottom:8px;">The pipeline is verified end-to-end against a stub speaking the exact Web2API SSE contract; talking to the real provider endpoints needs a logged-in browser session.</li>
+        <li style="margin-bottom:8px;">ChatGPT needs its Bearer token for full API access — the extension grabs it from localStorage when available (best effort). Gemini and Perplexity are cookie-only.</li>
+        <li style="margin-bottom:8px;">DeepSeek and HuggingFace agents were removed — Web2API has no API path for them.</li>
+        <li style="margin-bottom:8px;">The legacy v2 extension (<code>src/</code>, <code>content/</code>, <code>ui/legacy</code>) is kept for reference; the extension and harness are the supported paths.</li>
+      </ul>
+    </section>
 
   <footer>
     <span>The Orchestrator · MIT License</span>
