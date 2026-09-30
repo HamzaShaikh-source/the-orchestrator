@@ -1,7 +1,9 @@
 /* server.js — HTTP/SSE server for The Orchestrator dashboard */
 import http from 'node:http';
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runPipeline } from './orchestrator.js';
@@ -69,6 +71,20 @@ async function fileExists(file) {
 function web2apiHeaders() {
   const key = process.env.WEB2API_API_KEY || '';
   return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
+/* Locate the vendored Web2API interpreter (falls back to system python). */
+function venvPython() {
+  const base = path.join(ROOT, 'vendor', 'web2api', '.venv');
+  const candidate = process.platform === 'win32'
+    ? path.join(base, 'Scripts', 'python.exe')
+    : path.join(base, 'bin', 'python');
+  try {
+    if (fs.existsSync(candidate)) return candidate;
+  } catch {
+    /* fall through */
+  }
+  return null;
 }
 
 async function fetchProviderIds(baseUrl) {
@@ -455,6 +471,56 @@ export function createServer({
     sendJson(res, 200, status);
   }
 
+  async function handleCaptureCookies(req, res) {
+    req.resume();
+    const script = path.join(ROOT, 'scripts', 'capture_cookies.py');
+    const candidates = [venvPython(), 'python', 'python3'].filter(Boolean);
+    let lastErr = 'no python interpreter found';
+    for (const py of candidates) {
+      const result = await new Promise((resolve) => {
+        execFile(py, [script, '--provider', 'all', '--browser', 'auto', '--json'], {
+          cwd: ROOT,
+          timeout: 45000,
+          maxBuffer: 1024 * 1024,
+          windowsHide: true,
+        }, (err, stdout, stderr) => resolve({ err, stdout, stderr }));
+      });
+      if (result.err && result.err.code === 'ENOENT') {
+        lastErr = `${py} not found`;
+        continue;
+      }
+      let parsed = null;
+      try {
+        parsed = JSON.parse(String(result.stdout || '').trim());
+      } catch {
+        /* fall through to error below */
+      }
+      if (parsed) {
+        const captured = Array.isArray(parsed.captured) ? parsed.captured : [];
+        // Ask Web2API to drop its cached clients so new auth files take effect.
+        let reloaded = false;
+        try {
+          const r = await fetch(`${web2apiBaseUrl}/api/reload`, {
+            method: 'POST',
+            signal: AbortSignal.timeout(2000),
+            headers: web2apiHeaders(),
+          });
+          reloaded = r.ok;
+        } catch {
+          reloaded = false;
+        }
+        providersMem = { url: null, ts: 0, ids: [] };
+        console.log(`[Cookies] capture: [${captured.join(', ')}] reloaded=${reloaded}`);
+        broadcast({ type: 'cookies-captured', captured });
+        sendJson(res, 200, { ok: true, captured, browsers: parsed.browsers || [], reloaded });
+        return;
+      }
+      lastErr = String(result.stderr || result.err?.message || 'capture script failed').trim().slice(0, 300);
+    }
+    console.log(`[Cookies] capture failed: ${lastErr}`);
+    sendJson(res, 200, { ok: false, captured: [], error: lastErr });
+  }
+
   async function handleConnectorTokens(req, res) {
     const body = await readJsonBody(req);
     const tokens = body?.tokens;
@@ -760,6 +826,14 @@ export function createServer({
         return;
       }
       await handleConnectorList(req, res);
+      return;
+    }
+    if (p === '/api/capture-cookies') {
+      if (m !== 'POST') {
+        sendJson(res, 405, { error: 'method not allowed' });
+        return;
+      }
+      await handleCaptureCookies(req, res);
       return;
     }
     if (p === '/api/connector-tokens') {

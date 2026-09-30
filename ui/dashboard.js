@@ -522,7 +522,7 @@ const PROVIDER_META = {
 
 function renderProviders() {
   const list = state.cookies && state.cookies.length ? state.cookies : [];
-  $('provider-list').innerHTML = list.map((p) => {
+  const rows = list.map((p) => {
     const meta = PROVIDER_META[p.id] || { name: p.id, color: '#888' };
     const live = Array.isArray(state.providers) && state.providers.includes(p.id);
     const cls = p.configured ? 'done' : '';
@@ -533,6 +533,13 @@ function renderProviders() {
       `<span class="pill ${cls}"><span class="dot"></span><span class="label">${label}</span></span>` +
     `</button>`;
   }).join('');
+  const anyMissing = list.some((p) => !p.configured);
+  const captureRow = anyMissing
+    ? `<button type="button" class="btn ghost small" id="capture-cookies" ` +
+      `aria-label="Import provider cookies from my browser" data-hermes-help="reads your local browser cookie db">` +
+      `Import cookies from my browser</button>`
+    : '';
+  $('provider-list').innerHTML = rows + captureRow;
 }
 
 function connectorStatusInfo(c) {
@@ -1091,11 +1098,31 @@ function bindUI() {
     if (state.panelOpen) closePanel();
     else openPanel(null);
   });
-  $('provider-list').addEventListener('click', (e) => {
-    const row = e.target.closest('[data-provider]');
-    if (!row) return;
-    toast('Install the Cookie Bridge extension: chrome://extensions → Developer mode → Load unpacked → extension/ folder. It auto-captures provider cookies.', 'info');
-  });
+  $('provider-list').addEventListener('click', async (e) => {
+      if (e.target.closest('#capture-cookies')) {
+        const btn = e.target.closest('#capture-cookies');
+        btn.disabled = true;
+        toast('Reading your browser cookie database…', 'info');
+        try {
+          const out = await postJSON('/api/capture-cookies', {});
+          const got = (out.captured || []);
+          if (got.length) {
+            toast(`Captured cookies for: ${got.join(', ')}`, 'good');
+            pushFeed(`Cookies imported from browser: ${got.join(', ')}`, 'good');
+          } else {
+            toast('No provider cookies found. Log into ChatGPT / Gemini / Perplexity in your browser, then retry.', 'error');
+          }
+          await loadState();
+        } catch (err) {
+          toast(`Cookie import failed: ${err.message}`, 'error');
+        }
+        btn.disabled = false;
+        return;
+      }
+      const row = e.target.closest('[data-provider]');
+      if (!row) return;
+      toast('The Node server reads provider cookies from vendor/web2api/auth/*.local.json — use "Import cookies from my browser" above, or see vendor/web2api/docs/COOKIES.md. Tip: the Chrome extension runs its own pipeline and needs no server.', 'info');
+    });
   $('connector-panel-close').addEventListener('click', closePanel);
   $('panel-backdrop').addEventListener('click', closePanel);
   document.addEventListener('keydown', (e) => {

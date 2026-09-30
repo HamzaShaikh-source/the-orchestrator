@@ -47,7 +47,21 @@ Then either drive the dashboard, or use the CLI:
 node harness/index.js --goal "Build a landing page with a contact form"
 ```
 
-To activate providers without touching cookie files by hand, load `extension/` unpacked — when the local server is running it also pushes captured cookies to it (`POST /api/cookies`) and hot-reloads Web2API, so providers go live instantly. Manual setup is documented in [`vendor/web2api/docs/COOKIES.md`](vendor/web2api/docs/COOKIES.md).
+The Node path needs provider credentials. You have two options:
+
+1. **One-click import (recommended):** open <http://127.0.0.1:3000/>, and in the sidebar under **PROVIDERS** click **Import cookies from my browser**. This reads your local Chromium browser's cookie database (`scripts/capture_cookies.py`), writes `vendor/web2api/auth/*.local.json`, and hot-reloads Web2API. No DevTools, no cURL copying.
+2. **Manual:** follow [`vendor/web2api/docs/COOKIES.md`](vendor/web2api/docs/COOKIES.md) to build the `*.local.json` files yourself.
+
+```bash
+# or from a terminal, without the dashboard:
+python scripts/capture_cookies.py --list              # which browsers were found
+python scripts/capture_cookies.py --provider all      # capture everything you're logged into
+python scripts/capture_cookies.py --provider gemini --browser brave
+```
+
+Note: on Windows, Chromium encrypts cookie values. If some values cannot be read, set `WEB2API_COOKIE_KEY` to the browser's `os_crypt.encrypted_key` (see the script's `--help`) or use `--strict` to see how many were skipped.
+
+> The `extension/` does **not** push cookies to this server. If you want a zero-setup path, use Option A instead — the extension runs its own pipeline and needs no server at all.
 
 ### Requirements
 

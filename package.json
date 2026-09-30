@@ -8,14 +8,15 @@
     "orchestrator": "harness/index.js"
   },
   "scripts": {
-    "start": "node harness/index.js",
-    "serve": "node harness/server.js",
-    "dev": "node scripts/services.mjs",
-    "web2api": "node scripts/web2api.mjs",
-    "setup": "node scripts/setup.mjs",
-    "ext": "node scripts/ext.mjs",
-    "test": "node --test"
-  },
+      "start": "node harness/index.js",
+      "serve": "node harness/server.js",
+      "dev": "node scripts/services.mjs",
+      "web2api": "node scripts/web2api.mjs",
+      "setup": "node scripts/setup.mjs",
+      "ext": "node scripts/ext.mjs",
+      "cookies": "python scripts/capture_cookies.py --list",
+      "test": "node --test"
+    },
   "engines": {
     "node": ">=20"
   },

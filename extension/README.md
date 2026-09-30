@@ -44,9 +44,10 @@ agents → synthesis → `<file>` extraction → in-memory ZIP (`core/zip.js`).
 ## Optional: the local server
 
 If you also run the Node harness (`npm run dev`), this extension keeps working
-exactly as above — it does not need the server. The Node path has a separate
-cookie bridge that pushes cookies to `http://127.0.0.1:3000`; that is not
-required for this self-contained mode.
+exactly as above — it does not need the server. Note that this extension does
+**not** push cookies to that server: the Node path has its own `POST /api/cookies`
+bridge which is not currently wired to this extension, so the `:3000` dashboard
+needs its own credentials (see `vendor/web2api/docs/COOKIES.md`).
 
 ## Permissions
 

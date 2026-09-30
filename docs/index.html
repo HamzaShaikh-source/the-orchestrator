@@ -124,7 +124,7 @@ footer { border-top:1px solid var(--border); margin-top:64px; padding-top:24px; 
     <span class="c"># the Web2API Python venv is created and installed automatically on first run</span>
 
     node harness/index.js --goal "Build a landing page with a contact form"</pre>
-        <p>Prefer the dashboard? Open <code>http://127.0.0.1:3000</code>. Want providers live without editing auth files by hand? Load <code>extension/</code> unpacked — when the local server is running it also pushes captured cookies to it and hot-reloads Web2API.</p>
+        <p>Prefer the dashboard? Open <code>http://127.0.0.1:3000</code>. The Node path needs provider credentials — click <strong>Import cookies from my browser</strong> in the sidebar (or run <code>python scripts/capture_cookies.py</code>), or just use Option A, which needs no server.</p>
         <p>Requirements: <strong>Node ≥ 20</strong> (zero npm dependencies), and for Option B <strong>Python ≥ 3.11</strong> plus <code>uv</code> (preferred) or <code>python -m venv</code>.</p>
       </section>
 
